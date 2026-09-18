@@ -36,7 +36,7 @@ def quote(value):
 unit.write_text('\n'.join([
     '[Unit]', 'Description=Astra Control coordination dashboard',
     'After=network-online.target', 'Wants=network-online.target', '', '[Service]',
-    'Type=simple', f'WorkingDirectory={quote(target)}',
+    'Type=simple', 'WorkingDirectory=%h/.local/share/astra-control',
     f'ExecStart={quote(Path(node).resolve())} {quote(target / "dist/server.js")}',
     f'Environment="PATH={Path.home()}/.local/bin:/usr/local/bin:/usr/bin:/bin"',
     'Restart=on-failure', 'RestartSec=5', 'UMask=0077', '', '[Install]',
