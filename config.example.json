@@ -1,0 +1,7 @@
+{
+  "port": 4318,
+  "hosts": [
+    {"id":"local","name":"MacBook Pro","codex":"/Applications/ChatGPT.app/Contents/Resources/codex","python":"python3"},
+    {"id":"astra","name":"Astra","ssh":"your-user@your-existing-ssh-host","codex":"/usr/lib/chatgpt/resources/codex"}
+  ]
+}

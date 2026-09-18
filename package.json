@@ -1,0 +1,29 @@
+{
+  "name": "astra-control",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "test": "tsx --test tests/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  },
+  "description": "Self-hosted coordination for coding agents across machines and repositories.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shadoprizm/astra-control.git"
+  },
+  "dependencies": {
+    "jose": "^6.2.12"
+  }
+}
