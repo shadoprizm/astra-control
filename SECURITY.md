@@ -9,3 +9,13 @@ Keep `data/`, local configuration, credentials, transcripts, backups, and logs o
 To report a vulnerability, use the repository's private vulnerability reporting feature when enabled. Otherwise contact the maintainer through their GitHub profile to arrange a private report; do not disclose credentials or exploit details in a public issue.
 
 Only the current main branch receives fixes during the preview period. See docs/VERIFICATION.md for what has and has not been tested.
+
+## Owner-only Internet deployment
+
+Protect the entire hostname with Cloudflare Access. Allow one exact owner identity, require an independent second factor (prefer a security key/passkey), use short sessions, and leave signup, Access access requests, broad domain rules, service-token bypasses, and anonymous paths disabled. The application has no account registration route. Set its allowedEmails list to the same single owner.
+
+Treat an authenticated owner as having the execution machine's existing agent permissions. This release does not provide OS-level isolation from that account. Keep provider approval policies enabled, and do not publish raw agent runtimes or SSH ports.
+
+The app sends noindex/nofollow/noarchive/nosnippet, no-store, a restrictive CSP, and other security headers on successes and errors. It supplies a robots exclusion file and noindex HTML metadata. The reverse proxy must also prevent indexing of its own login/error pages, which do not pass through the application. Crawling directives are advisory; authorization protects task content. Public DNS and certificate records can reveal a hostname. Do not publish personal deployment addresses in this repository.
+
+Owner mutations require a valid signed identity, the configured origin, and a CSRF token. Action bursts and open event streams are bounded. These limits do not replace the gateway's network abuse controls. Use Cloudflare Access logs for authentication auditing and the application's command history for dispatched actions. Authentication testing must cover unauthorized users and unauthenticated API/SSE requests before enabling a public route.

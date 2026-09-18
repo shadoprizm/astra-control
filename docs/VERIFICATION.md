@@ -35,3 +35,9 @@ Offline behavior and duplicate/uncertain delivery were tested deterministically 
 The public repository begins with a clean source snapshot; private deployment history, runtime data, credentials, machine identifiers, and diagnostic artifacts are excluded. Six additional Node authentication tests cover valid signed owner tokens, missing assertions including localhost Host, forged signatures, unauthorized identities, expired tokens, wrong audiences, untrusted hosts/peers, fail-closed configuration, and legacy private access.
 
 Public DNS/Access deployment and shared desktop runtime integration are not established by these unit tests. See the roadmap for remaining live acceptance checks.
+
+## Owner-only deployment hardening
+
+Two additional Node tests exercise authenticated action limits and a running public-mode HTTP server. Anonymous requests to the page, API, event stream, health check, assets, and robots file return 403 with no-store/noindex headers. Forged email/Tailscale headers and a forged JWT with localhost Host are rejected. Registration requests cannot bypass authentication. Total: 16 Node tests plus 4 Python tests.
+
+These checks do not prove that a particular Cloudflare account has an owner-only MFA policy. That policy, proxy-generated login headers, and a real owner sign-in must be verified at deployment.
