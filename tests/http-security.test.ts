@@ -28,7 +28,7 @@ test('the actual public-mode server denies anonymous and forged-identity request
  try{
   const until=Date.now()+10000;while(!output.includes('listening')&&Date.now()<until&&child.exitCode===null)await new Promise(r=>setTimeout(r,40));
   assert.match(output,/listening/,'server starts');
-  for(const path of ['/','/api/state','/api/events','/api/detail?key=any','/healthz','/app.js','/robots.txt']){
+  for(const path of ['/','/api/state','/api/events','/api/detail?key=any','/healthz','/app.js','/conversation.js','/conversation.css','/robots.txt']){
    const response=await fetch(`http://127.0.0.1:${port}${path}`,{headers:{Host:'control.example.com','Cf-Access-Authenticated-User-Email':'owner@example.com','Tailscale-User-Login':'owner@example.com'}});
    assert.equal(response.status,403,path);assert.match(response.headers.get('x-robots-tag')||'',/noindex/);
    assert.equal(response.headers.get('cache-control'),'no-store');assert.match(response.headers.get('content-security-policy')||'',/frame-ancestors 'none'/);

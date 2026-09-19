@@ -28,7 +28,25 @@
 
 The desktop's private app-tool socket is not available to external clients. The MVP does not circumvent that restriction. It reads existing task projections and uses the documented App Server protocol for managed task controls. Existing desktop-owned task steering and native approval enumeration remain unavailable until ownership is released. The interface describes this explicitly.
 
-Offline behavior and duplicate/uncertain delivery were tested deterministically without disconnecting or interrupting the user's real machines or agents. Approval acceptance, every possible MCP form, automatic worktree creation, Git push/merge/deploy, and remote service failover are not covered by this MVP.
+Offline behavior and duplicate/uncertain delivery were tested deterministically without disconnecting or interrupting the user's real machines or agents. Approval acceptance, every possible MCP form, Git push/merge/deploy, and remote service failover are not covered by this MVP.
+
+## UI and isolation follow-up — 2026-09-19
+
+- 32 Node tests passed, including grouped inbox behavior, batch resolution, project disambiguation, checkout conflict assessment, result summaries, conversation compaction, isolated task dispatch, and forced machine retry.
+- Five Python tests passed, including creation of a real sibling worktree and `codex/*` branch in a disposable Git repository.
+- TypeScript build and frontend JavaScript syntax checks passed.
+- Browser verification covered the dedicated inbox with two completion groups, multi-select and batch handling, result-first task review, machine diagnostics, searchable project selection, active-checkout warnings, and the 390px mobile layout.
+- Browser verification did not submit a new task, so no user repository or live agent was created. The connector worktree path was exercised only in the disposable automated test; remote live task isolation and abandoned-worktree recovery remain unverified.
+
+## Unified work capture — 2026-09-19
+
+- TypeScript build passed with the neutral work model, normalized SQLite tables, paginated APIs, four source types, and Runtime projection.
+- 42 Node tests passed. New coverage includes transactional Codex migration with preserved watch/action/command state, no duplicate work, exact-correlation-only linking, archive/pin filtering, model/locality filters, 4,000-character excerpt limits, Hermes profile behavior, Open WebUI owner-scoped endpoints, quiet ordinary chat replies, durable watched background completion, current failure/waiting backfill, writer-lock-aware Codex status, captured-inventory reporting, and duplicate failure/action suppression.
+- The OpenClaw integration test performs a real protocol-v4 WebSocket challenge/response against a fixture Gateway, checks the Ed25519 device proof, verifies the exact `operator.read` and `operator.approvals` scopes, injects an overlapping bootstrap event, observes the trailing reconciliation list, deduplicates repeated approvals, and asserts that no write RPC is called.
+- Six Python connector/worktree tests passed, including an inventory larger than the former fixed recent cap. Frontend module syntax checks, installer syntax checks, and the TypeScript build passed.
+- Source endpoints are rejected unless loopback. Source and Runtime credential files must be `0600`. Auth/token-like fields are redacted or stripped from error and Runtime projections, and external source payloads persist bounded metadata rather than transcripts.
+
+The final production acceptance record appears below after promotion. `astra-kclaw` is explicitly out of scope; its changed SSH host key must not be bypassed.
 
 ## Open-source preparation
 

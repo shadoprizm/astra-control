@@ -4,13 +4,27 @@ Astra Control can run on a Linux server while its agents run on that server and 
 
 ## Prepare the server
 
-Install Node 22.13+, Python 3, and Codex. Sign in to Codex on each execution machine. Establish noninteractive SSH from the hub to each workstation through your preferred private network. Keep credentials out of the browser and repository.
+Install Node 22.19+, Python 3, and Codex. Sign in to Codex on each execution machine. Establish noninteractive SSH from the hub to each workstation through your preferred private network. Keep credentials out of the browser and repository.
 
-Clone the project, run `npm ci` and `npm run build`, then create private `data/config.json` from `config.example.json`. The server host should be local (omit `ssh`); workstation hosts should use their existing SSH aliases. Preserve host IDs if migrating an existing database.
+Clone the project and create private `data/config.json` from `config.example.json`. The server host should be local (omit `ssh`); workstation hosts should use their existing SSH aliases. Preserve host IDs if migrating an existing database.
 
-Run `python3 scripts/install-linux.py` to install `astra-control.service` under the current user's systemd services. It uses `~/.local/share/astra-control`, binds 127.0.0.1, and preserves existing configuration/state. User services require an active user manager; ask the machine administrator about lingering if it must run after logout.
+Commit or stash every source change, then run `python3 scripts/install-linux.py` to install `astra-control.service` under the current user's systemd services. The installer refuses a dirty tree, runs `npm ci`, the complete test suite, and a fresh build before stopping the service. It backs up the prior deployment and private state, checksum-verifies the copied artifact, writes an exact version/commit `release.json`, installs production dependencies, and verifies that systemd reports the service active. It uses `~/.local/share/astra-control`, binds 127.0.0.1, and preserves existing configuration/state. User services require an active user manager; ask the machine administrator about lingering if it must run after logout.
 
-Inspect with `systemctl --user status astra-control` and `journalctl --user -u astra-control`. Stop with `systemctl --user stop astra-control`. The installer prints a backup location; restore its code/unit files and reload systemd to roll back. Restore package.json and package-lock.json together and run `npm ci --omit=dev --ignore-scripts` for their dependencies.
+## External source connectors
+
+Every configured source endpoint must resolve to loopback; the server refuses non-loopback Hermes, OpenClaw, Open WebUI, and Runtime URLs. Put each secret in its own owner-readable `0600` file outside the repository. The example configuration shows the six permitted Hermes profiles; the adapter also enforces that allowlist and will not ingest the excluded family profiles.
+
+Locality is accepted only from source-reported fields, exact model IDs found in the local Runtime catalog, or explicit `locality.providers`, `locality.models`, and `locality.profiles` configuration. Keep aliases such as `Astra Smart Router` and Open WebUI route names unmapped unless the source reports their resolved route.
+
+Open WebUI must use a route-restricted API key from the owner account. Astra Control calls only owner-scoped chat list, pinned, detail, and model endpoints. It never calls user/admin inventory. Configure `deepLinkBase` separately if browser links should use an authenticated public Open WebUI origin; the data API remains loopback.
+
+OpenClaw uses `@openclaw/gateway-client` and creates a stable `0600` Ed25519 identity at `deviceFile`. The first connection uses the shared bootstrap token from `tokenFile` and may report `PAIRING_REQUIRED`. On the Gateway host, inspect `openclaw devices list` and approve that exact Astra Control request. It asks only for `operator.read` and `operator.approvals`; a request containing write/admin scope is not expected. The issued device token is stored back into `deviceFile`. Keep both files in private backups.
+
+Hermes requires a stable file-backed `HERMES_DASHBOARD_SESSION_TOKEN`. Write the same value into the configured token file and the Hermes service environment before restarting both services; an automatically rotating dashboard token will make the connector fail closed.
+
+The optional Runtime connector reads the broker's `/v1/models`, `/router/status`, and safe metrics endpoints. Use `loadedModelUrls` for loopback-only llama.cpp `/models` and Ollama `/api/ps` endpoints when model-load state is exposed by separate runtimes. Each endpoint fails independently.
+
+Inspect with `systemctl --user status astra-control` and `journalctl --user -u astra-control`. The authenticated dashboard, `/api/state`, and `/healthz` report the installed version/commit and captured inventory totals. Stop with `systemctl --user stop astra-control`. The installer prints a backup location; restore its code/unit/manifest files and reload systemd to roll back. Restore package.json and package-lock.json together and run `npm ci --omit=dev --ignore-scripts` for their dependencies.
 
 ## Public hostname and browser sign-in
 

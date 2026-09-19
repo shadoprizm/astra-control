@@ -1,5 +1,5 @@
 """Read-only Codex inventory. Runs unchanged locally and over an existing SSH login."""
-import sys, json, sqlite3, pathlib, time, fcntl, subprocess
+import sys, json, sqlite3, pathlib, time, fcntl, subprocess, re, secrets
 
 HOME = pathlib.Path.home() / '.codex'
 
@@ -32,34 +32,57 @@ def normalized(item):
         return {'id': item.get('id'), 'role': 'change', 'text': '\n'.join(x.get('path', '') for x in item.get('changes', [])), 'status': item.get('status')}
     return None
 
+def latest_turns(history):
+    """Return one current turn row per thread without an N+1 inventory query."""
+    turns = {}
+    for row in history.execute('select * from thread_turns order by thread_id, rollout_ordinal desc'):
+        if row['thread_id'] not in turns:
+            turns[row['thread_id']] = dict(row)
+    return turns
+
+def messages_for(history, thread, detail=False):
+    limit = 80 if detail else 4
+    items = history.execute("select item_json,created_at_ms from thread_items where thread_id=? and item_type in ('agentMessage','userMessage'" + (",'commandExecution','fileChange'" if detail else '') + ") order by rollout_ordinal desc limit ?", (thread, limit)).fetchall()
+    messages = []
+    for it in reversed(items):
+        try:
+            item = normalized(json.loads(it['item_json']))
+            if item:
+                item['at'] = it['created_at_ms']
+                messages.append(item)
+        except (ValueError, TypeError):
+            pass
+    return messages
+
 def inventory(detail=None):
     state = connection('state_5.sqlite')
     history = connection('thread_history_1.sqlite')
     if detail:
         rows = state.execute('select * from threads where id=?', (detail,)).fetchall()
     else:
-        rows = state.execute("select * from threads where archived=0 and source not like '%subagent%' order by updated_at desc limit 60").fetchall()
+        # The dashboard is an operational inventory, not a recent-task sample. Read every
+        # non-archived task, including subagents, so old failures and interrupted work do
+        # not silently disappear behind a fixed recency window.
+        rows = state.execute('select * from threads where archived=0 order by coalesce(updated_at_ms, updated_at * 1000) desc').fetchall()
+    turns = latest_turns(history)
     tasks = []
-    for r in rows:
+    for index, r in enumerate(rows):
         r = dict(r)
-        turn = history.execute('select * from thread_turns where thread_id=? order by rollout_ordinal desc limit 1', (r['id'],)).fetchone()
-        turn = dict(turn) if turn else None
-        limit = 80 if detail else 4
-        items = history.execute("select item_json,created_at_ms from thread_items where thread_id=? and item_type in ('agentMessage','userMessage'" + (",'commandExecution','fileChange'" if detail else '') + ") order by rollout_ordinal desc limit ?", (r['id'], limit)).fetchall()
-        messages = []
-        for it in reversed(items):
-            try:
-                x = normalized(json.loads(it['item_json']))
-                if x: x['at'] = it['created_at_ms']; messages.append(x)
-            except (ValueError, TypeError): pass
+        turn = turns.get(r['id'])
+        turn_status = (turn or {}).get('status', 'unknown')
+        # Keep the periodic full inventory bounded: recent and actionable tasks carry a
+        # preview, while old completed tasks fetch their bounded conversation on demand.
+        include_preview = detail or index < 100 or turn_status in ('inProgress', 'interrupted', 'failed')
+        messages = messages_for(history, r['id'], detail) if include_preview else []
         latest = next((m for m in reversed(messages) if m['role'] == 'assistant' and m['text'] and not m['text'].lstrip().startswith('<heartbeat>')), None)
         locked = owned(r['id'])
-        status = (turn or {}).get('status', 'unknown')
+        status = turn_status
         if status == 'inProgress': status = 'running' if locked else 'unknown'
         elif status == 'completed': status = 'idle'
         elif status == 'interrupted': status = 'paused'
         elif status not in ['failed']: status = 'unknown'
-        tasks.append({'id': r['id'], 'title': r.get('name') or r.get('title') or r.get('preview') or 'Untitled task', 'cwd': r['cwd'], 'branch': r.get('git_branch'), 'updatedAt': (r.get('updated_at_ms') or r['updated_at'] * 1000), 'turnId': (turn or {}).get('turn_id'), 'turnStatus': (turn or {}).get('status'), 'status': status, 'owned': locked, 'latest': latest, 'messages': messages if detail else [], 'model': r.get('model'), 'error': (turn or {}).get('error_json')})
+        title = str(r.get('name') or r.get('title') or r.get('preview') or 'Untitled task')[:500]
+        tasks.append({'id': r['id'], 'title': title, 'cwd': r['cwd'], 'projectId': r.get('project_id'), 'branch': r.get('git_branch'), 'updatedAt': (r.get('updated_at_ms') or r['updated_at'] * 1000), 'turnId': (turn or {}).get('turn_id'), 'turnStatus': turn_status, 'status': status, 'owned': locked, 'latest': latest, 'messages': messages if detail else [], 'model': r.get('model'), 'error': (turn or {}).get('error_json')})
     return tasks
 
 def git_info(thread):
@@ -86,10 +109,27 @@ def git_info(thread):
     except (ValueError, subprocess.TimeoutExpired, FileNotFoundError) as e:
         return {'available': False, 'error': str(e)[:300]}
 
+def create_worktree(cwd, title):
+    def run(args):
+        p = subprocess.run(['git', '-c', 'core.fsmonitor=false', '-C', cwd, *args], text=True, capture_output=True, timeout=30)
+        if p.returncode: raise ValueError((p.stderr or p.stdout).strip()[:500])
+        return p.stdout.strip()
+    root = pathlib.Path(run(['rev-parse', '--show-toplevel'])).resolve()
+    slug = re.sub(r'[^a-z0-9]+', '-', str(title).lower()).strip('-')[:32] or 'task'
+    token = secrets.token_hex(3)
+    branch = f'codex/{slug}-{token}'
+    parent = root.parent / f'{root.name}-worktrees'
+    parent.mkdir(mode=0o700, exist_ok=True)
+    target = parent / f'{slug}-{token}'
+    run(['worktree', 'add', '-b', branch, str(target), 'HEAD'])
+    return {'cwd': str(target), 'branch': branch, 'sourceRoot': str(root)}
+
 if __name__ == '__main__':
     try:
         arg = json.loads(sys.argv[1]) if len(sys.argv) > 1 else {}
-        result = git_info(arg['id']) if arg.get('method') == 'git' else inventory(arg.get('id'))
+        if arg.get('method') == 'git': result = git_info(arg['id'])
+        elif arg.get('method') == 'worktree': result = create_worktree(arg['cwd'], arg.get('title') or 'task')
+        else: result = inventory(arg.get('id'))
         print(json.dumps({'ok': True, 'result': result}))
     except Exception as e:
         print(json.dumps({'ok': False, 'error': str(e)[:300]}))

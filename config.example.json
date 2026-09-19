@@ -3,5 +3,11 @@
   "hosts": [
     {"id":"local","name":"MacBook Pro","codex":"/Applications/ChatGPT.app/Contents/Resources/codex","python":"python3"},
     {"id":"astra","name":"Astra","ssh":"your-user@your-existing-ssh-host","codex":"/usr/lib/chatgpt/resources/codex"}
-  ]
+  ],
+  "sources": [
+    {"id":"hermes-astra","name":"Hermes","adapter":"hermes","hostId":"astra","baseUrl":"http://127.0.0.1:9119","tokenFile":"/home/you/.config/astra-control/hermes-dashboard.token","profiles":["default","astra","qwen-local","peaktasks","peaktasks-sonnet","peaktasks-webchat"],"locality":{"profiles":{"qwen-local":"local"}}},
+    {"id":"openclaw-astra","name":"OpenClaw","adapter":"openclaw","hostId":"astra","baseUrl":"ws://127.0.0.1:18789","tokenFile":"/home/you/.config/astra-control/openclaw-bootstrap.token","deviceFile":"/home/you/.config/astra-control/openclaw-device.json","configuredAgentsOnly":true,"locality":{"providers":{"your-cloud-provider":"cloud"}}},
+    {"id":"openwebui-astra","name":"Open WebUI","adapter":"openwebui","hostId":"astra","baseUrl":"http://127.0.0.1:3000","tokenFile":"/home/you/.config/astra-control/openwebui-owner.token"}
+  ],
+  "runtime":{"id":"gpu-broker","name":"Astra GPU broker","hostId":"astra","baseUrl":"http://127.0.0.1:8082","loadedModelUrls":["http://127.0.0.1:8083/models","http://127.0.0.1:8085/models","http://127.0.0.1:11434/api/ps"]}
 }

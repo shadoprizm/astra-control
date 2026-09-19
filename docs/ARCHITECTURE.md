@@ -2,17 +2,38 @@
 
 ## Current
 
-The browser talks to a loopback Node hub over HTTP and server-sent events. SQLite persists tasks, inbox entries, command delivery, and coordinator messages. Local/SSH Python readers inspect Codex projections without modifying them. Separate Codex App Server subprocesses execute dashboard-managed work through JSON-RPC. The coordinator is an on-demand read-only planning turn; proposed dispatches require a user action.
+The browser talks to a loopback Node hub over HTTP and server-sent invalidation events. SQLite persists normalized work items/sources/correlations/cursors, inbox entries, Codex command delivery, and coordinator messages. The initial migration transactionally projects existing Codex rows into the neutral tables while retaining the original task key, watch/managed flags, inbox links, and command history.
 
-The current provider-specific code is in `src/rpc.ts`, `src/hosts.ts`, `src/engine.ts`, and `connector/snapshot.py`. The database discovery adapter depends on internal schemas and must remain version-checked and replaceable.
+`WorkItem` separates the conversation from its adapter, execution host, model provider, requested/resolved model, and inference locality. A source record contains its native identifier, profile/agent, deep link, and advertised capability set. Multiple source records share one work item only when an exact propagated correlation identifier matches; no fuzzy linking exists. SQLite stores metadata plus at most a 4,000-character latest excerpt. Detail calls read at most 30 bounded entries from the source with a total response cap.
 
-## Target
+Codex continues to use local/SSH read-only projections plus App Server JSON-RPC for its existing controls. Each snapshot includes every non-archived parent and subagent task; only recent or actionable tasks carry bounded preview detail. Hermes uses its loopback dashboard API and explicit profile allowlist. Open WebUI uses an owner API key and owner-scoped chat endpoints. OpenClaw uses the pinned official protocol-v4 Gateway client, a persisted Ed25519 device identity, and only `operator.read` plus `operator.approvals`. External adapters advertise observation-only capabilities in v1. One adapter can fail or become incompatible without taking the dashboard or other sources offline.
 
-Browser → authenticated server hub → machine connector → provider runtime.
+The browser groups durable inbox records for the same task at presentation time; the underlying records remain independently auditable. Batch resolution is transactional and excludes live approvals. Task review is result-first: the latest final response and observed repository evidence precede compacted conversation and technical activity. Machine diagnostics use the same authenticated hub and connector path as ordinary refreshes.
 
-The hub owns coordination and its audit trail. Machine connectors own persistent runtime connections and credentials. Provider adapters advertise what each session supports. The browser receives normalized state and renders native approval details only when the adapter can answer that request safely.
+The adapter contract and implementations are in `src/adapters.ts`; Runtime inventory is isolated in `src/runtime.ts`. Codex-specific control remains in `src/rpc.ts`, `src/hosts.ts`, `src/engine.ts`, and `connector/snapshot.py`. The browser gets summary/inbox/Runtime state from `/api/state`, pages through `/api/work-items`, and requests bounded source detail only when a card opens.
 
-A future session identifier needs provider + machine + native session ID. Capabilities include observe, create, resume, send, steer, interrupt, and answer-request, plus reasons for unsupported operations. A request is tied to its provider session and connection generation; reconnect must reconcile it before accepting a response. Existing task keys need a migration rather than a silent format change.
+## Runtime and status semantics
+
+Hermes and Open WebUI reconcile every 12 seconds. OpenClaw subscribes before reading its initial roster, merges session events, performs a trailing list read when bootstrap events overlap, and reconciles at least every 60 seconds. Last good snapshots are retained; card availability becomes stale after 45 seconds.
+
+Statuses are normalized to `active`, `recent`, `waiting`, `idle`, `completed`, `failed`, `offline`, and `unknown`, with explicit `authoritative` or `heuristic` confidence. A Codex in-progress projection is active only while its task database has a live writer lock; interrupted or unlocked in-progress work maps to waiting. Current waiting and failed states create durable state-derived inbox entries even on first observation, and those entries auto-resolve when the state clears. Hermes’s five-minute activity heuristic maps to `recent`. OpenClaw uses source-reported active run identities and timestamps. Open WebUI uses the unfinished-generation active flag. Model aliases never imply local/cloud placement: locality remains unknown unless the source or broker explicitly reports it.
+
+The Runtime page queries the configured loopback GPU broker for model catalog, router state, allowlisted numeric metrics, and loaded-model summaries. It does not ingest prompts, responses, or raw completion requests. Secrets, auth fields, messages, and prompt-like fields are stripped from Runtime payloads before browser serialization.
+
+## Repository coordination
+
+Cloud isolation and Git worktrees protect filesystems, but they do not prevent two otherwise isolated tasks from changing the same files or producing branches that conflict at integration time. Astra Control should coordinate at the repository level before it dispatches work from the browser or to a cloud provider.
+
+Repository identity must not rely on a checkout path. The hub should normalize a provider repository ID or Git remote and record the execution host, checkout/worktree, branch, base commit, task intent, and known file scope. Local repositories without a remote may use a host-scoped Git common directory as a fallback identity.
+
+The dispatch preflight should apply these rules:
+
+1. Never start a second writer in an occupied checkout. Create an isolated worktree/environment or refuse the start.
+2. For active tasks in separate checkouts of the same repository, allow clearly disjoint work and give each task a concise sibling-work summary.
+3. When scopes overlap or cannot be determined, serialize the work or require an explicit owner choice. Do not silently assume that environment isolation makes the changes compatible.
+4. Before merge, push, or pull-request actions, refresh the repository state, compare the current base and changed paths, and surface conflicts for review. Do not auto-merge or auto-rebase merely because both tasks completed.
+
+Reservations must be durable and reconciled against observed runtime state. A stale or disconnected task does not release its repository reservation by itself. The current implementation ships the first safety layer: new Git tasks default to a sibling worktree and `codex/*` branch, while the existing-checkout mode warns about active tasks and requires an explicit confirmation. It does not yet normalize repository identity, reserve repositories, compare task scopes, or revalidate integration actions, so the broader guarantees above remain roadmap work.
 
 ## Codex integration investigation
 

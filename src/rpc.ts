@@ -3,6 +3,7 @@ import {EventEmitter} from 'node:events';
 import {createInterface} from 'node:readline';
 import {randomUUID} from 'node:crypto';
 import type {HostConfig} from './types.js';
+import {APP_VERSION} from './version.js';
 
 export class Rpc extends EventEmitter {
   proc?:ChildProcessWithoutNullStreams;
@@ -24,7 +25,7 @@ export class Rpc extends EventEmitter {
     p.stderr.on('data',()=>{}); // Never forward runtime logs or secrets to the browser.
     const ended=()=>{if(this.proc!==p)return;this.ready=false;this.proc=undefined;for(const q of this.pending.values()){clearTimeout(q.timer);q.reject(new Error('Codex connection closed; delivery may be uncertain.'));}this.pending.clear();this.emit('disconnect');};
     p.on('error',ended);p.on('exit',ended);
-    try{await this.raw('initialize',{clientInfo:{name:'astra_control',title:'Astra Control',version:'0.1.0'},capabilities:{experimentalApi:true}},15000);this.write({method:'initialized',params:{}});this.ready=true;}
+    try{await this.raw('initialize',{clientInfo:{name:'astra_control',title:'Astra Control',version:APP_VERSION},capabilities:{experimentalApi:true}},15000);this.write({method:'initialized',params:{}});this.ready=true;}
     catch(e){p.kill();throw e;}
   }
   write(m:any){if(!this.proc||this.proc.stdin.destroyed)throw new Error('Codex is offline');this.proc.stdin.write(JSON.stringify(m)+'\n');}

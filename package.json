@@ -1,6 +1,6 @@
 {
   "name": "astra-control",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -17,13 +17,15 @@
   "description": "Self-hosted coordination for coding agents across machines and repositories.",
   "license": "MIT",
   "engines": {
-    "node": ">=22.13.0"
+    "node": ">=22.19.0"
   },
   "repository": {
     "type": "git",
     "url": "https://github.com/shadoprizm/astra-control.git"
   },
   "dependencies": {
+    "@openclaw/gateway-client": "2026.8.1",
+    "@openclaw/gateway-protocol": "2026.8.1",
     "jose": "^6.2.12"
   }
 }
