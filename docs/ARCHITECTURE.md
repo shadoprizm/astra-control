@@ -14,7 +14,7 @@ The adapter contract and implementations are in `src/adapters.ts`; Runtime inven
 
 ## Runtime and status semantics
 
-Hermes and Open WebUI reconcile every 12 seconds. OpenClaw subscribes before reading its initial roster, merges session events, performs a trailing list read when bootstrap events overlap, and reconciles at least every 60 seconds. Last good snapshots are retained; card availability becomes stale after 45 seconds.
+Hermes and Open WebUI reconcile every 12 seconds. OpenClaw subscribes before reading its initial roster, merges session events, performs a trailing list read when bootstrap events overlap, and reconciles at least every 60 seconds. Last good snapshots are retained. Open WebUI card availability becomes stale after 45 seconds, OpenClaw uses at least 90 seconds to cover its reconciliation interval, and Hermes uses 180 seconds so a complete paginated inventory can finish without a false stale transition.
 
 Statuses are normalized to `active`, `recent`, `waiting`, `idle`, `completed`, `failed`, `offline`, and `unknown`, with explicit `authoritative` or `heuristic` confidence. A Codex in-progress projection is active only while its task database has a live writer lock; interrupted or unlocked in-progress work maps to waiting. Current waiting and failed states create durable state-derived inbox entries even on first observation, and those entries auto-resolve when the state clears. Hermes’s five-minute activity heuristic maps to `recent`. OpenClaw uses source-reported active run identities and timestamps. Open WebUI uses the unfinished-generation active flag. Model aliases never imply local/cloud placement: locality remains unknown unless the source or broker explicitly reports it.
 
