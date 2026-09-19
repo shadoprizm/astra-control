@@ -8,20 +8,28 @@ if platform.system() != 'Linux':
 source = Path(__file__).resolve().parents[1]
 target = Path.home() / '.local/share/astra-control'
 unit = Path.home() / '.config/systemd/user/astra-control.service'
-node = shutil.which('node')
-npm = shutil.which('npm')
-git = shutil.which('git')
+def executable(name):
+    found = shutil.which(name)
+    if found: return found
+    candidate = Path.home() / '.local/bin' / name
+    return str(candidate) if candidate.is_file() else None
+
+node = executable('node')
+npm = executable('npm')
+git = executable('git')
 if not node or not npm or not git:
     raise SystemExit('Node, npm, and Git are required')
+tool_env = os.environ.copy()
+tool_env['PATH'] = os.pathsep.join(dict.fromkeys([str(Path(node).parent), str(Path(npm).parent), tool_env.get('PATH', '')]))
 if not (target / 'data/config.json').exists() and not (source / 'data/config.json').exists():
     raise SystemExit('Create data/config.json before installation')
 dirty = subprocess.run([git, 'status', '--porcelain', '--untracked-files=all'], cwd=source, check=True, capture_output=True, text=True).stdout.strip()
 if dirty:
     raise SystemExit('Refusing to install a dirty source tree. Commit or stash the listed changes first.\n' + dirty)
 commit = subprocess.run([git, 'rev-parse', 'HEAD'], cwd=source, check=True, capture_output=True, text=True).stdout.strip()
-subprocess.run([npm, 'ci', '--ignore-scripts'], cwd=source, check=True)
-subprocess.run([npm, 'test'], cwd=source, check=True)
-subprocess.run([npm, 'run', 'build'], cwd=source, check=True)
+subprocess.run([npm, 'ci', '--ignore-scripts'], cwd=source, check=True, env=tool_env)
+subprocess.run([npm, 'test'], cwd=source, check=True, env=tool_env)
+subprocess.run([npm, 'run', 'build'], cwd=source, check=True, env=tool_env)
 
 def artifact_digest(root):
     digest = hashlib.sha256()
@@ -78,7 +86,7 @@ if artifact_digest(target) != release['artifactSha256']:
 if not (target / 'data/config.json').exists():
     shutil.copy2(source / 'data/config.json', target / 'data/config.json')
 (target / 'data/config.json').chmod(0o600)
-subprocess.run([npm, 'ci', '--omit=dev', '--ignore-scripts'], cwd=target, check=True)
+subprocess.run([npm, 'ci', '--omit=dev', '--ignore-scripts'], cwd=target, check=True, env=tool_env)
 unit.parent.mkdir(parents=True, exist_ok=True)
 def quote(value):
     return '"' + str(value).replace('\\', '\\\\').replace('"', '\\"').replace('%', '%%') + '"'

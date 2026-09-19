@@ -7,17 +7,24 @@ source=Path(__file__).resolve().parents[1]
 target=Path.home()/'.local/share/astra-control'
 label='io.astra.control'
 plist=Path.home()/'Library/LaunchAgents'/f'{label}.plist'
-node=shutil.which('node')
-npm=shutil.which('npm')
-git=shutil.which('git')
+def executable(name):
+    found=shutil.which(name)
+    if found:return found
+    candidates=[Path.home()/'.local/bin'/name,Path('/opt/homebrew/bin')/name,Path('/usr/local/bin')/name]
+    return str(next((candidate for candidate in candidates if candidate.is_file()),'')) or None
+node=executable('node')
+npm=executable('npm')
+git=executable('git')
 if not node or not npm or not git:raise SystemExit('Node, npm, and Git are required')
+tool_env=os.environ.copy()
+tool_env['PATH']=os.pathsep.join(dict.fromkeys([str(Path(node).parent),str(Path(npm).parent),tool_env.get('PATH','')]))
 if not (target/'data/config.json').exists() and not (source/'data/config.json').exists():raise SystemExit('Create data/config.json before installation')
 dirty=subprocess.run([git,'status','--porcelain','--untracked-files=all'],cwd=source,check=True,capture_output=True,text=True).stdout.strip()
 if dirty:raise SystemExit('Refusing to install a dirty source tree. Commit or stash the listed changes first.\n'+dirty)
 commit=subprocess.run([git,'rev-parse','HEAD'],cwd=source,check=True,capture_output=True,text=True).stdout.strip()
-subprocess.run([npm,'ci','--ignore-scripts'],cwd=source,check=True)
-subprocess.run([npm,'test'],cwd=source,check=True)
-subprocess.run([npm,'run','build'],cwd=source,check=True)
+subprocess.run([npm,'ci','--ignore-scripts'],cwd=source,check=True,env=tool_env)
+subprocess.run([npm,'test'],cwd=source,check=True,env=tool_env)
+subprocess.run([npm,'run','build'],cwd=source,check=True,env=tool_env)
 def artifact_digest(root):
     digest=hashlib.sha256()
     paths=[root/name for name in ['dist','public','connector','package.json','package-lock.json']]
@@ -45,7 +52,7 @@ shutil.copy2(source/'package.json',target/'package.json')
 shutil.copy2(source/'package-lock.json',target/'package-lock.json')
 if artifact_digest(target)!=release['artifactSha256']:raise SystemExit('Installed artifact checksum does not match the verified source build')
 (target/'release.json').write_text(json.dumps(release,indent=2)+'\n')
-subprocess.run(['npm','ci','--omit=dev','--ignore-scripts'],cwd=target,check=True)
+subprocess.run([npm,'ci','--omit=dev','--ignore-scripts'],cwd=target,check=True,env=tool_env)
 (target/'data').mkdir(exist_ok=True,mode=0o700)
 if not (target/'data/config.json').exists():shutil.copy2(source/'data/config.json',target/'data/config.json')
 if not (target/'data/control.sqlite').exists() and (source/'data/control.sqlite').exists():
