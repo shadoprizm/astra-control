@@ -1,7 +1,7 @@
 """Install this user's private background service; preserves an existing deployment."""
 from pathlib import Path
 from datetime import datetime, timezone
-import hashlib, json, shutil, subprocess, plistlib, time, sqlite3, os
+import hashlib, json, shutil, subprocess, plistlib, time, sqlite3, os, sys
 
 source=Path(__file__).resolve().parents[1]
 target=Path.home()/'.local/share/astra-control'
@@ -24,6 +24,7 @@ if dirty:raise SystemExit('Refusing to install a dirty source tree. Commit or st
 commit=subprocess.run([git,'rev-parse','HEAD'],cwd=source,check=True,capture_output=True,text=True).stdout.strip()
 subprocess.run([npm,'ci','--ignore-scripts'],cwd=source,check=True,env=tool_env)
 subprocess.run([npm,'test'],cwd=source,check=True,env=tool_env)
+subprocess.run([sys.executable,'-m','unittest','discover','-s','tests','-p','*_test.py'],cwd=source,check=True,env=tool_env)
 subprocess.run([npm,'run','build'],cwd=source,check=True,env=tool_env)
 def artifact_digest(root):
     digest=hashlib.sha256()

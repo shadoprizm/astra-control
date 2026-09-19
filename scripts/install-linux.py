@@ -1,7 +1,7 @@
 """Install the built application as a per-user Linux service. Does not expose it."""
 from pathlib import Path
 from datetime import datetime, timezone
-import hashlib, json, os, platform, shutil, subprocess, time
+import hashlib, json, os, platform, shutil, subprocess, sys, time
 
 if platform.system() != 'Linux':
     raise SystemExit('This installer requires Linux')
@@ -29,6 +29,7 @@ if dirty:
 commit = subprocess.run([git, 'rev-parse', 'HEAD'], cwd=source, check=True, capture_output=True, text=True).stdout.strip()
 subprocess.run([npm, 'ci', '--ignore-scripts'], cwd=source, check=True, env=tool_env)
 subprocess.run([npm, 'test'], cwd=source, check=True, env=tool_env)
+subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s', 'tests', '-p', '*_test.py'], cwd=source, check=True, env=tool_env)
 subprocess.run([npm, 'run', 'build'], cwd=source, check=True, env=tool_env)
 
 def artifact_digest(root):
