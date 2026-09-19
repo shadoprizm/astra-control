@@ -48,6 +48,16 @@ Offline behavior and duplicate/uncertain delivery were tested deterministically 
 
 The final production acceptance record appears below after promotion. `astra-kclaw` is explicitly out of scope; its changed SSH host key must not be bypassed.
 
+## Production acceptance — 2026-09-19
+
+- The clean-tree Linux installer rebuilt and ran 43 Node tests, six Python tests, and TypeScript compilation before each promotion. It checksum-verified the copied artifact, wrote the release manifest, restarted the user service, and confirmed systemd active. The repository, `origin/main`, installed `release.json`, and running service were reconciled to one exact commit.
+- The live authenticated UI reported v0.2.1 plus its commit, two connected Codex machines, two authoritative active tasks, eight migrated watched tasks, and 60 grouped attention items. Those 60 corresponded to 51 current waiting/interrupted states, eight current failures, and one retained completion; 59 state-derived items were created by the new first-observation backfill.
+- Full direct Codex snapshots and normalized production rows matched exactly: 1,192 Mac tasks and 104 Astra tasks, including subagents and tasks beyond the former 60-item cap.
+- External inventories contained 1,255 Hermes sessions, 141 OpenClaw sessions, and 56 Open WebUI chats. The Runtime page exposed those exact captured totals; Hermes and Open WebUI were connected after refresh. OpenClaw’s 60-second reconciliation interval received a dedicated 90-second freshness window so a healthy source no longer oscillates stale at 45 seconds.
+- The production database held 2,748 visible work items after reconciliation: two active, 51 waiting, eight failed, 61 unknown, 770 idle, and 1,856 completed at the acceptance instant. The seven prior Mac watch selections were merged with the existing production selection using a transactional SQLite backup; all eight appeared in the live UI.
+- Anonymous HTTPS requests redirected to Cloudflare Access rather than reaching the application. The authenticated owner page and live-update stream remained functional through the release. No connector credential, private configuration, transcript database, or personal deployment address was committed to the public repository.
+- The legacy macOS LaunchAgent had no running managed tasks, was disabled and stopped after production passed, leaving the Linux deployment as the only active hub. Its files and database were retained for recovery.
+
 ## Open-source preparation
 
 The public repository begins with a clean source snapshot; private deployment history, runtime data, credentials, machine identifiers, and diagnostic artifacts are excluded. Six additional Node authentication tests cover valid signed owner tokens, missing assertions including localhost Host, forged signatures, unauthorized identities, expired tokens, wrong audiences, untrusted hosts/peers, fail-closed configuration, and legacy private access.

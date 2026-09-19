@@ -65,7 +65,7 @@ Tailscale Serve remains supported with `publicOrigin` and `allowedLogin`. Its id
 
 ## Current status
 
-The JWT guard has automated signed-token tests. A new public domain deployment still needs live owner sign-in and off-network verification; the code alone does not establish a secure deployed route. Shared-runtime desktop integration and Claude Code support are separate roadmap milestones.
+The JWT guard has automated signed-token tests, and the reference production installation has passed owner sign-in, anonymous redirect, off-network reachability, exact release identity, and live inventory acceptance. Every new installation must repeat those checks; the code alone does not establish a secure deployed route. Shared-runtime desktop integration and Claude Code support are separate roadmap milestones.
 
 ## Search exclusion
 
