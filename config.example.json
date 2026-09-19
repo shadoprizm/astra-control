@@ -9,5 +9,6 @@
     {"id":"openclaw-astra","name":"OpenClaw","adapter":"openclaw","hostId":"astra","baseUrl":"ws://127.0.0.1:18789","tokenFile":"/home/you/.config/astra-control/openclaw-bootstrap.token","deviceFile":"/home/you/.config/astra-control/openclaw-device.json","configuredAgentsOnly":true,"locality":{"providers":{"your-cloud-provider":"cloud"}}},
     {"id":"openwebui-astra","name":"Open WebUI","adapter":"openwebui","hostId":"astra","baseUrl":"http://127.0.0.1:3000","tokenFile":"/home/you/.config/astra-control/openwebui-owner.token"}
   ],
+  "coordinator":{"model":"gpt-6-astra","reasoningEffort":"xhigh","maxActions":12},
   "runtime":{"id":"gpu-broker","name":"Astra GPU broker","hostId":"astra","baseUrl":"http://127.0.0.1:8082","loadedModelUrls":["http://127.0.0.1:8083/models","http://127.0.0.1:8085/models","http://127.0.0.1:11434/api/ps"]}
 }

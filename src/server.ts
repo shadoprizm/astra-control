@@ -56,6 +56,7 @@ const server=createServer({requestTimeout:15000,headersTimeout:10000},async(req,
    if(path==='/api/approval')return json(res,200,engine.approval(text(b.id,'action'),b));
    if(path==='/api/send')return json(res,200,await engine.send(requestId(b.requestId),text(b.key,'task'),text(b.prompt,'message')));
    if(path==='/api/pause')return json(res,200,await engine.pause(requestId(b.requestId),text(b.key,'task')));
+   if(path==='/api/archive')return json(res,200,await engine.archive(requestId(b.requestId),text(b.key,'task')));
    if(path==='/api/create'){if(b.isolate!=null&&typeof b.isolate!=='boolean')throw new Error('Invalid checkout mode');return json(res,200,await engine.create(requestId(b.requestId),text(b.hostId,'machine'),optionalText(b.projectId,'project',200),text(b.cwd,'working directory'),text(b.title,'title',160),text(b.prompt,'prompt'),b.isolate===true));}
    if(path==='/api/chat')return json(res,200,await engine.chat(text(b.message,'message',5000)));
    if(path==='/api/refresh'){await engine.refresh();return json(res,200,{ok:true});}

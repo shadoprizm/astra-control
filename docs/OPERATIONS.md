@@ -21,3 +21,7 @@ Back up SQLite with its backup API or after stopping the hub; copying only a liv
 The schema migration is idempotent and retains existing Codex task keys, watches, managed state, inbox links, and command history. Restore and verify the backup before promotion. An incompatible external adapter is expected to show its own health error while the rest of the dashboard remains available; do not remove its last snapshot merely because a poll failed.
 
 The CLI login, SSH setup, and repository paths belong to each execution machine. A host that cannot be reached is displayed as offline; that does not prove its agents stopped.
+
+## Coordinator authority
+
+The coordinator runs only when the owner submits a coordinator message. Its default configuration is `{"model":"gpt-6-astra","reasoningEffort":"xhigh","maxActions":12}`; override those fields under `coordinator` in `data/config.json` when necessary. A response may execute up to `maxActions` validated controls immediately, so treat dashboard access as task-control access and review the Activity and coordinator execution results after broad instructions. Coordinator planning failures execute no actions. Individual action failures do not cause implicit retries and do not prevent later independently validated actions from reporting their own result.

@@ -12,6 +12,8 @@ The browser groups durable inbox records for the same task at presentation time;
 
 The adapter contract and implementations are in `src/adapters.ts`; Runtime inventory is isolated in `src/runtime.ts`. Codex-specific control remains in `src/rpc.ts`, `src/hosts.ts`, `src/engine.ts`, and `connector/snapshot.py`. The browser gets summary/inbox/Runtime state from `/api/state`, pages through `/api/work-items`, and requests bounded source detail only when a card opens.
 
+The on-demand coordinator is a read-only planning process, not an unrestricted shell agent. It receives bounded task/project/host/inbox context, treats source content as untrusted, and emits a strict action schema. The hub validates exact identifiers and current state, then sequentially routes accepted `send`, `interrupt`, `archive`, `create`, `watch`, `resolve`, `approval`, and `refresh` actions through the same engine methods used by the authenticated UI. Accepted and failed execution results are stored beside the recommendation. Permanent deletion and repository integration/release operations are deliberately absent from the action schema.
+
 ## Runtime and status semantics
 
 Hermes and Open WebUI reconcile every 12 seconds. OpenClaw subscribes before reading its initial roster, merges session events, performs a trailing list read when bootstrap events overlap, and reconciles at least every 60 seconds. Last good snapshots are retained. Open WebUI card availability becomes stale after 45 seconds, OpenClaw uses at least 90 seconds to cover its reconciliation interval, and Hermes uses 180 seconds so a complete paginated inventory can finish without a false stale transition.

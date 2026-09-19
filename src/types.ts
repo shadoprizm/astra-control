@@ -26,5 +26,6 @@ export interface OpenClawSourceConfig extends BaseSourceConfig {adapter:'opencla
 export type SourceConfig=HermesSourceConfig|OpenWebUISourceConfig|OpenClawSourceConfig;
 export interface RuntimeConfig {id?:string;name?:string;hostId:string;baseUrl:string;tokenFile?:string;loadedModelUrls?:string[];}
 export interface RuntimeSnapshot {observedAt:number;online:boolean;error:string;catalog:any[];router:any;metrics:Record<string,number>;loadedModels:any[];providers:string[];}
-export interface Config { port:number; hosts:HostConfig[]; sources?:SourceConfig[]; runtime?:RuntimeConfig; publicOrigin?:string; allowedLogin?:string; auth?:{mode:'cloudflare-access';issuer:string;audience:string;allowedEmails:string[]}; }
+export interface CoordinatorConfig {model?:string;reasoningEffort?:'low'|'medium'|'high'|'xhigh'|'max'|'ultra';maxActions?:number;}
+export interface Config { port:number; hosts:HostConfig[]; sources?:SourceConfig[]; runtime?:RuntimeConfig; coordinator?:CoordinatorConfig; publicOrigin?:string; allowedLogin?:string; auth?:{mode:'cloudflare-access';issuer:string;audience:string;allowedEmails:string[]}; }
 export const taskKey = (host:string,id:string) => `${host}:${id}`;

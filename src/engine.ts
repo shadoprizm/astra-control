@@ -3,7 +3,7 @@ import {randomUUID} from 'node:crypto';
 import {Host} from './hosts.js';
 import {Store} from './store.js';
 import {taskKey,Config,Project,Task,WorkItem} from './types.js';
-import {coordinate} from './coordinator.js';
+import {coordinate,type CoordinatorAction,type CoordinatorExecution,type CoordinatorPlan} from './coordinator.js';
 import {boundDetailMessages,createAdapter,SourceAdapter} from './adapters.js';
 import {RuntimeMonitor} from './runtime.js';
 
@@ -67,9 +67,26 @@ export class Engine extends EventEmitter {
 	const turn=await h.rpc.call('turn/start',{threadId:tid,input:[{type:'text',text:prompt}]});this.emit('change');return {key,threadId:tid,turnId:turn.turn.id,worktree};
 	});}
  async pause(id:string,key:string){const t=this.task(key),h=this.host(t.hostId);if(!t.managed)throw new Error('Open this desktop-owned task in Codex to pause it');return this.command(id,key,'pause',{},async()=>{const r=await h.rpc.call('thread/read',{threadId:t.id,includeTurns:true});const active=r.thread?.turns?.findLast((x:any)=>x.status==='inProgress');if(!active)throw new Error('No active turn to pause');return h.rpc.call('turn/interrupt',{threadId:t.id,turnId:active.id});});}
- async chat(message:string){if(this.chatBusy)throw new Error('The coordinator is answering your previous message');this.chatBusy=true;this.store.addChat('user',{answer:message});this.emit('change');try{const local=this.hosts.find(h=>!h.config.ssh);if(!local)throw new Error('A local Codex runtime is required');const result=await coordinate(local.config.codex,this.root,message,this.store.tasks().filter(t=>t.watched||t.status==='running'),this.store.chat(),this.store.actions());this.store.addChat('assistant',result);return result;}catch(e){this.store.addChat('assistant',{answer:`Coordinator unavailable: ${(e as Error).message}`,dispatches:[]});throw e;}finally{this.chatBusy=false;this.emit('change');}}
+ async archive(id:string,key:string){const t=this.task(key),h=this.host(t.hostId);return this.command(id,key,'archive',{},async()=>{
+  const approval=this.store.actions().find(action=>action.task_key===key&&action.kind==='approval'&&['open','responding'].includes(action.status));if(approval)throw new Error('Resolve the pending approval before archiving this task');
+  const current=await h.rpc.call('thread/read',{threadId:t.id,includeTurns:true}),active=current.thread?.turns?.findLast((turn:any)=>turn.status==='inProgress');if(active)throw new Error('Interrupt the active turn before archiving this task');
+  await h.rpc.call('thread/archive',{threadId:t.id});this.store.removeTask(key);return {key,threadId:t.id,archived:true};
+ });}
+ private async coordinatorAction(action:CoordinatorAction):Promise<{summary:string;taskKey?:string}>{
+  if(action.type==='send'){const task=this.task(action.taskKey!);await this.send(randomUUID(),task.key,action.prompt!);return {summary:`Instruction accepted for ${task.title}.`,taskKey:task.key};}
+  if(action.type==='interrupt'){const task=this.task(action.taskKey!);await this.pause(randomUUID(),task.key);return {summary:`Interrupt accepted for ${task.title}.`,taskKey:task.key};}
+  if(action.type==='archive'){const task=this.task(action.taskKey!);await this.archive(randomUUID(),task.key);return {summary:`Archived ${task.title}.`,taskKey:task.key};}
+  if(action.type==='create'){const result=await this.create(randomUUID(),action.hostId!,action.projectId??null,action.cwd!,action.title!,action.prompt!,action.isolate!==false),key=result.result?.key;return {summary:`Started ${action.title}${result.result?.worktree?.branch?` in ${result.result.worktree.branch}`:''}.`,taskKey:key};}
+  if(action.type==='watch'){const task=this.task(action.taskKey!);this.watch(task.key,action.value!);return {summary:`${action.value?'Watching':'Stopped watching'} ${task.title}.`,taskKey:task.key};}
+  if(action.type==='resolve'){const current=this.store.actions(),ids=action.actionIds!.filter(id=>current.some(record=>record.id===id&&record.kind!=='approval'&&record.status!=='resolved'));if(ids.length)this.store.resolveMany(ids);this.emit('change');return {summary:`Marked ${ids.length} inbox item${ids.length===1?'':'s'} handled.`};}
+  if(action.type==='approval'){const record=this.store.actions().find(value=>value.id===action.actionId);if(!record)throw new Error('Approval request no longer exists');const decision=action.decision==='answer'?{answers:Object.fromEntries((action.answers||[]).map(answer=>[answer.questionId,answer.answer]))}:{action:action.decision};this.approval(record.id,decision);return {summary:action.decision==='answer'?'Answered the agent question.':`${action.decision==='accept'?'Approved':'Declined'} ${record.title}.`,taskKey:record.task_key||undefined};}
+  await this.refresh(true);return {summary:'Workspace state refreshed.'};
+ }
+ async executeCoordinatorActions(plan:CoordinatorPlan){const executions:CoordinatorExecution[]=[];for(const action of plan.actions){try{const result=await this.coordinatorAction(action);executions.push({actionId:action.id,type:action.type,reason:action.reason,status:'accepted',summary:result.summary,taskKey:result.taskKey});}catch(error){executions.push({actionId:action.id,type:action.type,reason:action.reason,status:'failed',summary:(error as Error).message,taskKey:action.taskKey});}}return executions;}
+ async chat(message:string){if(this.chatBusy)throw new Error('The coordinator is answering your previous message');this.chatBusy=true;this.store.addChat('user',{answer:message});this.emit('change');try{const local=this.hosts.find(host=>!host.config.ssh);if(!local)throw new Error('A local Codex runtime is required');const tasks=this.store.tasks().filter(task=>this.store.workItem(task.key));const result=await coordinate(local.config.codex,this.root,message,{tasks,projects:this.projects(),hosts:this.config.hosts,history:this.store.chat(),inboxActions:this.store.actions()},this.config.coordinator);result.executions=await this.executeCoordinatorActions(result);this.store.addChat('assistant',result);return result;}catch(error){this.store.addChat('assistant',{answer:`Coordinator unavailable: ${(error as Error).message}`,actions:[],executions:[]});throw error;}finally{this.chatBusy=false;this.emit('change');}}
  event(h:Host,e:any,generation:string){const p=e.params||{},tid=p.threadId||p.thread?.id;const key=tid?taskKey(h.config.id,tid):null;
  if(e.method==='project/changed'){void h.refreshProjects(true).finally(()=>this.emit('change'));return;}
+ if((e.method==='thread/archived'||e.method==='thread/deleted')&&key){this.store.removeTask(key);this.emit('change');return;}
  if(e.id!=null&&e.method){
   const supported=['item/commandExecution/requestApproval','item/fileChange/requestApproval','item/permissions/requestApproval','item/tool/requestUserInput','mcpServer/elicitation/request'];
   if(!supported.includes(e.method)){try{h.rpc.write({id:e.id,error:{code:-32601,message:'Astra Control does not support this interactive request. Open the task in Codex.'}});}catch{}return;}
