@@ -14,6 +14,7 @@ import {
 } from "./adapters.js";
 import { RuntimeMonitor } from "./runtime.js";
 import { demoGit, demoWorkspace, seedDemoStore } from "./demo.js";
+import { policyAction, policyDecision, type PolicyActor } from "./policy.js";
 
 function checkoutName(path: string) {
   const parts = path.replace(/[\\/]+$/, "").split(/[\\/]/);
@@ -397,6 +398,9 @@ export class Engine extends EventEmitter {
         providerSummary,
       };
     return {
+      supervisorName:
+        this.config.supervisorName?.trim().slice(0, 60) || "Astra",
+      baselines: { decision: this.store.decisionBaseline() },
       summary: this.store.workSummary(),
       projects: demo?.projects || this.projects(),
       hosts:
@@ -408,6 +412,9 @@ export class Engine extends EventEmitter {
           lastSeen: h.lastSeen,
           error: h.error,
           runtimeConnected: h.rpc.ready,
+          controlAvailable: h.rpc.controlAvailable,
+          controlError: h.rpc.controlError,
+          protocolVersion: h.rpc.protocolVersion,
           projectsError: h.projectsError,
           inventoryCount: h.inventoryCount,
         })),
@@ -444,6 +451,9 @@ export class Engine extends EventEmitter {
         (source) => source.adapter !== "codex",
       ),
       codex = item.sourceRefs.filter((source) => source.adapter === "codex"),
+      controlHost = codex.length
+        ? this.hosts.find((host) => host.config.id === codex[0].hostId)
+        : undefined,
       available =
         codex.some(
           (source) =>
@@ -459,8 +469,15 @@ export class Engine extends EventEmitter {
             !!health?.lastSeen &&
             Date.now() - health.lastSeen <= this.sourceStaleAfter(adapter)
           );
-        });
-    return available ? item : { ...item, status: "offline" as const };
+        }),
+      projected = controlHost
+        ? {
+            ...item,
+            controlAvailable: controlHost.rpc.controlAvailable,
+            controlReason: controlHost.rpc.controlError,
+          }
+        : item;
+    return available ? projected : { ...projected, status: "offline" as const };
   }
   watch(key: string, value: boolean) {
     const work = this.store.workItem(key);
@@ -523,6 +540,7 @@ export class Engine extends EventEmitter {
     kind: string,
     body: any,
     run: () => Promise<any>,
+    actor: PolicyActor = "owner",
   ) {
     const prior = this.store.command(id);
     if (prior) {
@@ -537,7 +555,7 @@ export class Engine extends EventEmitter {
         result: prior.result ? JSON.parse(prior.result) : null,
       };
     }
-    this.store.beginCommand(id, key, kind, body);
+    this.store.beginCommand(id, key, kind, body, actor);
     try {
       const result = await run();
       this.store.finishCommand(id, "accepted", result);
@@ -631,6 +649,7 @@ export class Engine extends EventEmitter {
       "create",
       { hostId, projectId, cwd, title, prompt, isolate },
       async () => {
+        await h.rpc.ensureControlAvailable();
         const worktree = isolate ? await h.worktree(cwd, title) : null,
           runCwd = worktree?.cwd || cwd;
         const params: any = {
@@ -711,16 +730,23 @@ export class Engine extends EventEmitter {
     });
   }
   async executeCoordinatorActions(plan: CoordinatorPlan) {
-    return plan.actions.map(
-      (action): CoordinatorExecution => ({
+    return plan.actions.map((action): CoordinatorExecution => {
+      const actionClass = policyAction(action.type, action.decision),
+        decision = actionClass
+          ? policyDecision("coordinator", actionClass)
+          : "deny";
+      return {
         actionId: action.id,
         type: action.type,
         reason: action.reason,
-        status: "proposed",
-        summary: "Proposal only — no workspace action was executed.",
+        status: decision === "propose" ? "proposed" : "failed",
+        summary:
+          decision === "propose"
+            ? "Proposal only — no workspace action was executed."
+            : "Policy denied this coordinator recommendation.",
         taskKey: action.taskKey,
-      }),
-    );
+      };
+    });
   }
   async chat(message: string) {
     if (this.chatBusy)

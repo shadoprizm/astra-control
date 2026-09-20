@@ -12,7 +12,11 @@ The browser groups durable inbox records for the same task at presentation time;
 
 The adapter contract and implementations are in `src/adapters.ts`; Runtime inventory is isolated in `src/runtime.ts`. Codex-specific control remains in `src/rpc.ts`, `src/hosts.ts`, `src/engine.ts`, and `connector/snapshot.py`. The browser gets summary/inbox/Runtime state from `/api/state`, pages through `/api/work-items`, and requests bounded source detail only when a card opens.
 
-The on-demand coordinator is a read-only planning process, not an unrestricted shell agent. It receives bounded task/project/host/inbox context, treats source content as untrusted, and emits a strict action schema. The hub validates exact identifiers and current state, then sequentially routes accepted `send`, `interrupt`, `archive`, `create`, `watch`, `resolve`, `approval`, and `refresh` actions through the same engine methods used by the authenticated UI. Accepted and failed execution results are stored beside the recommendation. Permanent deletion and repository integration/release operations are deliberately absent from the action schema.
+The on-demand coordinator is a read-only planning process, not an unrestricted shell agent. It receives bounded task/project/host/inbox context, treats source content as untrusted, and emits a strict action schema. The hub records every emitted item as a proposal and does not route it to a mutation method. Direct owner controls use separate authenticated routes. A table-driven policy module gives owner, coordinator, and future autopilot actors an explicit decision for every action class; Release 0 allows owner actions, proposes every coordinator action, and denies every autopilot action.
+
+SQLite schema changes run through ordered migrations. An existing file is checkpointed and copied with SQLite's own snapshot operation before each unapplied migration. Command audit records include an actor so later execution modes cannot be confused with owner input. Live approvals use direct database lookups and remain visible even when more than 250 newer activity rows exist.
+
+Codex App Server initialization is also a capability gate. The hub parses the reported version and enables mutation RPCs only for exact versions that passed the release probe. Unknown versions retain read-only inventory and surface the reason in machine and task views.
 
 ### Demo isolation
 

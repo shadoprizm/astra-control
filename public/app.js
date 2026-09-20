@@ -576,11 +576,16 @@ function machineGuidance(host) {
     return "Synthetic machine health for exploring the diagnostics view. No machine connection was opened.";
   if (host.online && !host.runtimeConnected)
     return "Task snapshots are available, but the Codex runtime is reconnecting. Confirm Codex is signed in on this machine.";
+  if (host.runtimeConnected && !host.controlAvailable)
+    return (
+      host.controlError ||
+      "Controls are disabled because this Codex protocol has not passed the compatibility probe."
+    );
   if (/ssh/i.test(host.error || ""))
     return "Confirm the machine is awake and that its existing noninteractive SSH connection still works.";
   if (host.error)
     return "Retry the connection. If it still fails, check the machine service and Codex sign-in.";
-  return "Snapshots and the Codex runtime are available.";
+  return "Snapshots and tested Codex controls are available.";
 }
 function panelScrollSnapshot() {
   const content = $("#panel-content");
@@ -606,7 +611,7 @@ function openMachines(focusId = "") {
     ? [...state.hosts].sort((host) => (host.id === focusId ? -1 : 1))
     : state.hosts;
   $("#panel-content").innerHTML =
-    `<div class="machine-list">${hosts.map((host) => `<section class="machine-detail ${host.online ? "online" : "offline"}"><div class="machine-detail-heading"><span class="machine-symbol">${host.id === "local" ? "▱" : "▤"}</span><div><strong>${esc(host.name)}</strong><small>${host.online ? "Connected · " + ago(host.lastSeen) : "Offline · last seen " + ago(host.lastSeen)}</small></div><span class="badge ${host.online ? "running" : "offline"}">${host.online ? "Online" : "Offline"}</span></div><dl><div><dt>Captured tasks</dt><dd>${host.online ? host.inventoryCount || 0 : "Unavailable"}</dd></div><div><dt>Codex runtime</dt><dd>${host.runtimeConnected ? "Connected" : "Not connected"}</dd></div><div><dt>Saved projects</dt><dd>${host.projectsError ? "Refresh failed" : "Available"}</dd></div></dl>${host.error ? `<div class="notice warn">${esc(host.error)}</div>` : ""}${host.projectsError ? `<div class="notice warn">Project list: ${esc(host.projectsError)}</div>` : ""}<p>${esc(machineGuidance(host))}</p>${state.demo?.enabled ? "" : `<button class="secondary" data-retry-host="${esc(host.id)}">Retry connection</button>`}</section>`).join("")}</div>`;
+    `<div class="machine-list">${hosts.map((host) => `<section class="machine-detail ${host.online ? "online" : "offline"}"><div class="machine-detail-heading"><span class="machine-symbol">${host.id === "local" ? "▱" : "▤"}</span><div><strong>${esc(host.name)}</strong><small>${host.online ? "Connected · " + ago(host.lastSeen) : "Offline · last seen " + ago(host.lastSeen)}</small></div><span class="badge ${host.online ? "running" : "offline"}">${host.online ? "Online" : "Offline"}</span></div><dl><div><dt>Captured tasks</dt><dd>${host.online ? host.inventoryCount || 0 : "Unavailable"}</dd></div><div><dt>Codex runtime</dt><dd>${host.runtimeConnected ? "Connected" : "Not connected"}</dd></div><div><dt>Control protocol</dt><dd>${host.controlAvailable ? `Tested · ${esc(host.protocolVersion)}` : `Disabled · ${esc(host.protocolVersion || "unknown")}`}</dd></div><div><dt>Saved projects</dt><dd>${host.projectsError ? "Refresh failed" : "Available"}</dd></div></dl>${host.error ? `<div class="notice warn">${esc(host.error)}</div>` : ""}${host.projectsError ? `<div class="notice warn">Project list: ${esc(host.projectsError)}</div>` : ""}<p>${esc(machineGuidance(host))}</p>${state.demo?.enabled ? "" : `<button class="secondary" data-retry-host="${esc(host.id)}">Retry connection</button>`}</section>`).join("")}</div>`;
   restorePanelScroll(scroll);
 }
 function openPanel(eyebrow, name, resetScroll = true) {
@@ -643,9 +648,11 @@ function signalHtml(signal, t) {
   const action = signal.actionId
     ? `<button class="signal-action" data-action="${esc(signal.actionId)}">${esc(signal.actionLabel)} →</button>`
     : signal.focusComposer
-      ? !t.managed && t.owned
-        ? `<a class="signal-action" href="codex://threads/${encodeURIComponent(t.id)}">Open in Codex ↗</a>`
-        : `<button class="signal-action" data-focus-compose>${esc(signal.actionLabel)} →</button>`
+      ? t.controlAvailable === false
+        ? ""
+        : !t.managed && t.owned
+          ? `<a class="signal-action" href="codex://threads/${encodeURIComponent(t.id)}">Open in Codex ↗</a>`
+          : `<button class="signal-action" data-focus-compose>${esc(signal.actionLabel)} →</button>`
       : "";
   return `<section class="task-signal ${esc(signal.kind)}" role="status" aria-label="${esc(signal.label)}"><span class="signal-icon" aria-hidden="true">${esc(signal.icon)}</span><div class="signal-copy"><div class="signal-label">${esc(signal.label)}</div><strong>${esc(signal.title)}</strong><p>${esc(signal.body)}</p></div>${action}</section>`;
 }
@@ -708,8 +715,15 @@ function renderDetail(d, scroll) {
     earlier = summary.final
       ? messages.filter((message) => message.id !== summary.final.id)
       : messages,
-    inactive = !["active", "running", "recent", "offline"].includes(status);
-  content.innerHTML = `<div class="task-context"><div><span class="badge ${status}">${esc(status === "idle" ? "Turn complete" : status === "offline" ? "Stale / offline" : status)}</span><span>${esc(hostName(t.hostId))} · ${esc(repo(t))}</span></div><div class="actions-row"><a href="codex://threads/${encodeURIComponent(t.id)}">Open in Codex ↗</a>${t.managed && status === "active" ? `<button class="secondary" data-pause="${esc(t.key)}">Pause turn</button>` : ""}${inactive ? `<button class="secondary" data-archive="${esc(t.key)}">Archive task</button>` : ""}<button class="secondary" data-task="${esc(t.key)}">Refresh</button></div></div>${signalHtml(signal, t)}${!t.managed ? `<div class="ownership-note ${t.owned ? "warn" : ""}">${t.owned ? "This task is controlled by Codex desktop. Reply there to continue it." : "Sending a reply will bring this available task under dashboard control."}</div>` : ""}${reviewHtml(messages, g)}<section class="conversation-section"><div class="conversation-heading"><h3>Earlier conversation and activity</h3><span>Technical activity is collapsed</span></div><div class="messages">${conversationHtml(earlier.slice(-30)) || '<div class="empty compact">No earlier conversation items are available.</div>'}</div></section><form class="compose" id="send-form"><label for="send-input">Reply or give the agent its next instruction</label><textarea id="send-input" rows="4" placeholder="Write a clear answer or describe what should happen next…">${esc(drafts.get(t.key) || "")}</textarea><button class="primary full" type="submit" ${!t.managed && t.owned ? "disabled" : ""}>${!t.managed && t.owned ? "Continue in Codex — this task is desktop-owned" : "Send to agent →"}</button></form>${repositoryHtml(g)}`;
+    inactive = !["active", "running", "recent", "offline"].includes(status),
+    controls = t.controlAvailable !== false,
+    sendDisabled = !controls || (!t.managed && t.owned),
+    sendLabel = !controls
+      ? "Controls disabled — open in Codex"
+      : !t.managed && t.owned
+        ? "Continue in Codex — this task is desktop-owned"
+        : "Send to agent →";
+  content.innerHTML = `<div class="task-context"><div><span class="badge ${status}">${esc(status === "idle" ? "Turn complete" : status === "offline" ? "Stale / offline" : status)}</span><span>${esc(hostName(t.hostId))} · ${esc(repo(t))}</span></div><div class="actions-row"><a href="codex://threads/${encodeURIComponent(t.id)}">Open in Codex ↗</a>${controls && t.managed && status === "active" ? `<button class="secondary" data-pause="${esc(t.key)}">Pause turn</button>` : ""}${controls && inactive ? `<button class="secondary" data-archive="${esc(t.key)}">Archive task</button>` : ""}<button class="secondary" data-task="${esc(t.key)}">Refresh</button></div></div>${signalHtml(signal, t)}${!controls ? `<div class="ownership-note warn">${esc(t.controlReason || "Controls are disabled because this Codex protocol has not passed the compatibility probe.")}</div>` : !t.managed ? `<div class="ownership-note ${t.owned ? "warn" : ""}">${t.owned ? "This task is controlled by Codex desktop. Reply there to continue it." : "Sending a reply will bring this available task under dashboard control."}</div>` : ""}${reviewHtml(messages, g)}<section class="conversation-section"><div class="conversation-heading"><h3>Earlier conversation and activity</h3><span>Technical activity is collapsed</span></div><div class="messages">${conversationHtml(earlier.slice(-30)) || '<div class="empty compact">No earlier conversation items are available.</div>'}</div></section><form class="compose" id="send-form"><label for="send-input">Reply or give the agent its next instruction</label><textarea id="send-input" rows="4" placeholder="Write a clear answer or describe what should happen next…" ${controls ? "" : "disabled"}>${esc(drafts.get(t.key) || "")}</textarea><button class="primary full" type="submit" ${sendDisabled ? "disabled" : ""}>${sendLabel}</button></form>${repositoryHtml(g)}`;
   restorePanelScroll(scroll);
   $("#send-input").addEventListener("input", (e) =>
     drafts.set(t.key, e.target.value),
@@ -811,7 +825,7 @@ function renderChat() {
     scroll = existing ? panelScrollSnapshot() : null;
   panel = "chat";
   openPanel(
-    "ASTRA COORDINATOR",
+    `${String(state.supervisorName || "Astra").toUpperCase()} COORDINATOR`,
     "Review recommendations for your workspace.",
     !existing,
   );
@@ -862,9 +876,16 @@ async function openAction(id) {
   }
 }
 function renderAction(a, t, d, error = "") {
-  const p = a.payload;
+  const p = a.payload,
+    approvalHost = state.hosts.find((host) => host.id === p?.hostId),
+    approvalControl = !approvalHost || approvalHost.controlAvailable;
   let form = "";
-  if (a.kind === "approval" && a.status === "open" && !state.demo?.enabled) {
+  if (
+    a.kind === "approval" &&
+    a.status === "open" &&
+    !state.demo?.enabled &&
+    approvalControl
+  ) {
     if (p?.method === "item/tool/requestUserInput") {
       form =
         (p.params.questions || [])
@@ -907,7 +928,7 @@ function renderAction(a, t, d, error = "") {
       ? `<a href="${esc(ref.deepLink)}" ${ref.adapter === "codex" ? "" : 'target="_blank" rel="noreferrer"'}>Open in ${esc(sourceName(t))} ↗</a>`
       : "";
   $("#panel-content").innerHTML =
-    `${t ? `<p class="quiet">${esc(hostName(t.hostId))} · ${esc(title(t))}</p>` : ""}${a.kind === "failure" || a.kind === "delivery" ? `<div class="notice warn"><strong>${esc(a.title)}</strong><br>${esc(a.body)}</div>` : ""}${review}${state.demo?.enabled && a.kind === "approval" ? '<div class="notice"><strong>Sample decision only.</strong><br>Approval controls are disabled because no agent is connected.</div>' : ""}${error ? `<div class="notice warn">Live evidence could not be refreshed: ${esc(error)}</div>` : ""}${p ? `<details class="technical-details"><summary><span>Technical request details</span><small>Optional</small></summary><pre>${esc(JSON.stringify(p.params, null, 2))}</pre></details>` : ""}${a.status === "expired" ? '<div class="notice warn">The runtime connection changed, so this approval is invalid and cannot be reused. Resume or inspect the task in Codex and have the agent request approval again.</div>' : ""}${a.status === "responding" ? '<div class="notice">Decision submitted. Waiting for Codex to confirm resolution.</div>' : ""}<form id="decision-form">${form}</form><div class="actions-row">${t ? `<button class="secondary" data-task="${esc(t.key)}">Open full work</button>${sourceLink}` : ""}${(a.kind !== "approval" && a.status === "open") || a.status === "expired" ? `<button class="primary" data-resolve="${esc(a.id)}">Mark handled</button>` : ""}</div><p class="quiet">Created ${new Date(a.created_at).toLocaleString()}</p>`;
+    `${t ? `<p class="quiet">${esc(hostName(t.hostId))} · ${esc(title(t))}</p>` : ""}${a.kind === "failure" || a.kind === "delivery" ? `<div class="notice warn"><strong>${esc(a.title)}</strong><br>${esc(a.body)}</div>` : ""}${review}${state.demo?.enabled && a.kind === "approval" ? '<div class="notice"><strong>Sample decision only.</strong><br>Approval controls are disabled because no agent is connected.</div>' : ""}${!approvalControl && a.kind === "approval" ? `<div class="notice warn"><strong>Approval controls disabled.</strong><br>${esc(approvalHost?.controlError || "This Codex protocol has not passed the compatibility probe.")}</div>` : ""}${error ? `<div class="notice warn">Live evidence could not be refreshed: ${esc(error)}</div>` : ""}${p ? `<details class="technical-details"><summary><span>Technical request details</span><small>Optional</small></summary><pre>${esc(JSON.stringify(p.params, null, 2))}</pre></details>` : ""}${a.status === "expired" ? '<div class="notice warn">The runtime connection changed, so this approval is invalid and cannot be reused. Resume or inspect the task in Codex and have the agent request approval again.</div>' : ""}${a.status === "responding" ? '<div class="notice">Decision submitted. Waiting for Codex to confirm resolution.</div>' : ""}<form id="decision-form">${form}</form><div class="actions-row">${t ? `<button class="secondary" data-task="${esc(t.key)}">Open full work</button>${sourceLink}` : ""}${(a.kind !== "approval" && a.status === "open") || a.status === "expired" ? `<button class="primary" data-resolve="${esc(a.id)}">Mark handled</button>` : ""}</div><p class="quiet">Created ${new Date(a.created_at).toLocaleString()}</p>`;
   const decision = $("#decision-form");
   if (decision)
     decision.onsubmit = async (e) => {
@@ -941,7 +962,7 @@ function newTask() {
   $("#create-host").innerHTML = state.hosts
     .map(
       (h) =>
-        `<option value="${esc(h.id)}" ${h.online ? "" : "disabled"}>${esc(h.name)}${h.online ? "" : " · offline"}</option>`,
+        `<option value="${esc(h.id)}" ${h.online && h.controlAvailable ? "" : "disabled"}>${esc(h.name)}${!h.online ? " · offline" : !h.controlAvailable ? " · controls disabled" : ""}</option>`,
     )
     .join("");
   $("#create-project-search").value = "";
@@ -1013,12 +1034,16 @@ function updateCheckoutStatus() {
 }
 function updateCreateSubmit() {
   const project = createProjects[Number($("#create-project").value)],
+    host = state.hosts.find((value) => value.id === $("#create-host").value),
     busyExisting =
       $("#create-mode").value === "existing" &&
       $("#checkout-status").classList.contains("busy"),
     confirmed = !busyExisting || $("#confirm-overlap")?.checked;
   $('#create-form button[type="submit"]').disabled =
-    !project || !$("#create-cwd").value || !confirmed;
+    !host?.controlAvailable ||
+    !project ||
+    !$("#create-cwd").value ||
+    !confirmed;
 }
 $("#create-host").onchange = () => {
   $("#create-project-search").value = "";

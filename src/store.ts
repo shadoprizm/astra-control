@@ -1,5 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
+import { chmodSync, existsSync, mkdirSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import type { Task, WorkItem, WorkSourceRef, WorkStatus } from "./types.js";
 import type { SourceObservation } from "./adapters.js";
 
@@ -110,7 +112,9 @@ function storedAction(row: any) {
 
 export class Store {
   db: DatabaseSync;
-  constructor(path: string) {
+  private backupMigrations: boolean;
+  constructor(private path: string) {
+    this.backupMigrations = path !== ":memory:" && existsSync(path);
     this.db = new DatabaseSync(path);
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=3000;
  CREATE TABLE IF NOT EXISTS tasks(key TEXT PRIMARY KEY, payload TEXT NOT NULL, watched INTEGER NOT NULL DEFAULT 0, managed INTEGER NOT NULL DEFAULT 0);
@@ -127,64 +131,131 @@ export class Store {
  CREATE TABLE IF NOT EXISTS source_cursors(source_id TEXT PRIMARY KEY,cursor TEXT,updated_at INTEGER NOT NULL);
  CREATE INDEX IF NOT EXISTS work_items_recent_idx ON work_items(updated_at DESC,id);
  `);
-    this.ensureMigration();
+    this.runMigrations();
+    this.captureDecisionBaseline();
   }
-  private ensureMigration() {
+  private backupBeforeMigration(version: number) {
+    if (!this.backupMigrations) return;
+    const directory = join(dirname(this.path), "migration-backups"),
+      stamp = new Date().toISOString().replaceAll(":", "-").replace(".", "-"),
+      destination = join(
+        directory,
+        `${basename(this.path)}.before-v${version}-${stamp}-${randomUUID().slice(0, 8)}.sqlite`,
+      );
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    this.db.exec("PRAGMA wal_checkpoint(FULL)");
+    this.db.exec(`VACUUM INTO '${destination.replaceAll("'", "''")}'`);
+    chmodSync(destination, 0o600);
+  }
+  private applyMigration(version: number, apply: () => void) {
     if (
-      !this.db.prepare("SELECT 1 FROM schema_migrations WHERE version=1").get()
-    ) {
-      this.db.exec("BEGIN IMMEDIATE");
-      try {
-        const records = this.db.prepare("SELECT * FROM tasks").all() as any[];
-        for (const row of records) {
-          const task = {
-            ...parse<Task>(row.payload, {} as Task),
-            watched: !!row.watched,
-            managed: !!row.managed,
-          };
-          if (task.key)
-            this.writeSource({
-              item: codexWork(task),
-              source: codexWork(task).sourceRefs[0],
-              correlations: [],
-              native: { taskId: task.id },
-            });
-        }
-        this.db
-          .prepare(
-            "INSERT INTO schema_migrations(version,applied_at) VALUES(1,?)",
-          )
-          .run(Date.now());
-        this.db.exec("COMMIT");
-      } catch (error) {
-        this.db.exec("ROLLBACK");
-        throw error;
-      }
+      this.db
+        .prepare("SELECT 1 FROM schema_migrations WHERE version=?")
+        .get(version)
+    )
+      return;
+    this.backupBeforeMigration(version);
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      apply();
+      this.db
+        .prepare(
+          "INSERT INTO schema_migrations(version,applied_at) VALUES(?,?)",
+        )
+        .run(version, Date.now());
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
     }
-    if (
-      !this.db.prepare("SELECT 1 FROM schema_migrations WHERE version=2").get()
-    ) {
-      this.db.exec("BEGIN IMMEDIATE");
-      try {
-        const records = this.db
-            .prepare("SELECT key,payload FROM tasks")
-            .all() as any[],
-          update = this.db.prepare("UPDATE tasks SET payload=? WHERE key=?");
-        for (const row of records) {
-          const task = parse<Task>(row.payload, {} as Task);
-          if (task.key) update.run(JSON.stringify(storedTask(task)), row.key);
-        }
-        this.db
-          .prepare(
-            "INSERT INTO schema_migrations(version,applied_at) VALUES(2,?)",
-          )
-          .run(Date.now());
-        this.db.exec("COMMIT");
-      } catch (error) {
-        this.db.exec("ROLLBACK");
-        throw error;
+  }
+  private runMigrations() {
+    this.applyMigration(1, () => {
+      const records = this.db.prepare("SELECT * FROM tasks").all() as any[];
+      for (const row of records) {
+        const task = {
+          ...parse<Task>(row.payload, {} as Task),
+          watched: !!row.watched,
+          managed: !!row.managed,
+        };
+        if (task.key)
+          this.writeSource({
+            item: codexWork(task),
+            source: codexWork(task).sourceRefs[0],
+            correlations: [],
+            native: { taskId: task.id },
+          });
       }
-    }
+    });
+    this.applyMigration(2, () => {
+      const records = this.db
+          .prepare("SELECT key,payload FROM tasks")
+          .all() as any[],
+        update = this.db.prepare("UPDATE tasks SET payload=? WHERE key=?");
+      for (const row of records) {
+        const task = parse<Task>(row.payload, {} as Task);
+        if (task.key) update.run(JSON.stringify(storedTask(task)), row.key);
+      }
+    });
+    this.applyMigration(3, () => {
+      const columns = this.db
+        .prepare("PRAGMA table_info(commands)")
+        .all() as Array<{
+        name: string;
+      }>;
+      if (!columns.some((column) => column.name === "actor"))
+        this.db.exec(
+          "ALTER TABLE commands ADD COLUMN actor TEXT NOT NULL DEFAULT 'owner' CHECK(actor IN ('owner','coordinator','autopilot'))",
+        );
+    });
+  }
+  private captureDecisionBaseline() {
+    const key = "baseline.release0.decision.v1";
+    if (this.db.prepare("SELECT 1 FROM settings WHERE key=?").get(key)) return;
+    const records = this.db
+        .prepare(
+          "SELECT status,created_at,updated_at FROM actions WHERE kind='approval'",
+        )
+        .all() as Array<{
+        status: string;
+        created_at: number;
+        updated_at: number;
+      }>,
+      durations = records
+        .filter(
+          (record) =>
+            ["responding", "resolved"].includes(record.status) &&
+            record.updated_at >= record.created_at,
+        )
+        .map((record) => record.updated_at - record.created_at)
+        .sort((a, b) => a - b),
+      percentile = (ratio: number) =>
+        durations.length
+          ? durations[
+              Math.min(
+                durations.length - 1,
+                Math.floor(durations.length * ratio),
+              )
+            ]
+          : null,
+      baseline = {
+        capturedAt: Date.now(),
+        total: records.length,
+        decided: durations.length,
+        open: records.filter((record) => record.status === "open").length,
+        expired: records.filter((record) => record.status === "expired").length,
+        medianMs: percentile(0.5),
+        p90Ms: percentile(0.9),
+      };
+    this.db
+      .prepare("INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)")
+      .run(key, JSON.stringify(baseline));
+  }
+  decisionBaseline() {
+    const row = this.db
+      .prepare("SELECT value FROM settings WHERE key=?")
+      .get("baseline.release0.decision.v1") as any;
+    return parse(row?.value, null);
   }
   upsert(t: Task) {
     const compact = storedTask(t);
@@ -281,7 +352,7 @@ export class Store {
     return true;
   }
   migrate() {
-    this.ensureMigration();
+    this.runMigrations();
   }
   private workId(observation: SourceObservation) {
     const current = this.db
@@ -508,7 +579,7 @@ export class Store {
     };
   }
   workItems(query: WorkQuery = {}) {
-    this.ensureMigration();
+    this.runMigrations();
     const where = ["(w.archived=0 OR w.pinned=1)"],
       params: any[] = [];
     if (query.watched) where.push("w.watched=1");
@@ -560,7 +631,7 @@ export class Store {
     return { items, nextCursor: more ? String(offset + limit) : null };
   }
   workSummary() {
-    this.ensureMigration();
+    this.runMigrations();
     const rows = this.db
       .prepare(
         "SELECT status,kind,locality,COUNT(*) count FROM work_items WHERE archived=0 OR pinned=1 GROUP BY status,kind,locality",
@@ -733,13 +804,29 @@ export class Store {
       )
       .run(...(hostId ? [Date.now(), hostId + ":%"] : [Date.now()]));
   }
-  beginCommand(id: string, key: string, kind: string, body: any) {
+  beginCommand(
+    id: string,
+    key: string,
+    kind: string,
+    body: any,
+    actor: "owner" | "coordinator" | "autopilot" = "owner",
+  ) {
     const now = Date.now();
     const changed = this.db
       .prepare(
-        "INSERT OR IGNORE INTO commands(id,task_key,kind,body,status,result,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",
+        "INSERT OR IGNORE INTO commands(id,task_key,kind,body,status,result,created_at,updated_at,actor) VALUES(?,?,?,?,?,?,?,?,?)",
       )
-      .run(id, key, kind, JSON.stringify(body), "sending", null, now, now);
+      .run(
+        id,
+        key,
+        kind,
+        JSON.stringify(body),
+        "sending",
+        null,
+        now,
+        now,
+        actor,
+      );
     return Number(changed.changes) > 0;
   }
   command(id: string) {

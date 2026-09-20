@@ -32,7 +32,7 @@ ThreadHelm gives that scattered work one operating surface without pretending ev
 
 The distinction is deliberate: conversations and agent tasks belong in **Work**; raw inference requests do not. Model and router health belongs in **Runtime**.
 
-The coordinator is on-demand rather than autonomous background traffic. It uses `codex exec` to choose a bounded action plan from the current workspace snapshot; deterministic server code revalidates every identifier and executes only supported actions. It cannot run an unrestricted shell, push, merge, deploy, permanently delete work, or remove worktrees.
+The coordinator is on-demand rather than autonomous background traffic. It uses `codex exec` to produce bounded recommendations from the current workspace snapshot. Coordinator output is proposal-only in this release: the server records what it recommends and does not execute those actions. Direct controls remain explicit owner actions.
 
 ![ThreadHelm task review showing a synthetic completed Codex result](docs/assets/demo-review.png)
 
@@ -93,6 +93,9 @@ For a durable install, use `python3 scripts/install-local.py` on macOS or `pytho
 - SQLite contains normalized metadata and at most a 4,000-character latest excerpt. Detail is fetched on demand and bounded to 30 entries.
 - Credential files must be owner-only (`0600`), network source endpoints must be loopback, Claude activity paths must be absolute and owner-local, SSH bridges may call only a loopback ThreadHelm endpoint on the workstation, and secrets are stripped from Runtime payloads and errors.
 - Command delivery is idempotent. Uncertain delivery remains visible for review and is never retried automatically.
+- Coordinator recommendations are proposal-only at the server boundary. They cannot send, create, archive, clear inbox items, or answer approvals.
+- Codex controls are enabled only for exact App Server versions that passed the release probe; inventory remains visible when an unknown version disables controls.
+- Existing databases are backed up with SQLite before each ordered schema migration. Command audit rows identify the owner, coordinator, or autopilot actor.
 - New Git work uses a sibling `codex/*` worktree by default. Running in an occupied checkout requires an explicit override.
 - Public access requires an authenticated reverse proxy plus application-side identity verification. Never expose the bare dashboard or an agent runtime to the Internet.
 
@@ -120,6 +123,7 @@ Permanent deletion, automatic retry, push, merge, deployment, and worktree remov
 - `sources`: zero or more Claude Code, Hermes, OpenClaw, and Open WebUI adapters;
 - `runtime`: an optional loopback model/router inventory source;
 - `coordinator`: optional model, reasoning, and maximum-action settings;
+- `supervisorName`: the private display name for the coordinator, such as `Astra`;
 - `publicOrigin` plus an authentication mode only when using authenticated HTTPS access.
 
 Keep `data/` private. It contains configuration, bounded work excerpts, the inbox, and the audit trail and is excluded from Git. Provider credentials live outside the repository and are never returned to the browser.

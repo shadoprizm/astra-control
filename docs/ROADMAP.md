@@ -4,6 +4,8 @@
 
 One self-hosted workspace for supervising agent tasks and AI conversations across repositories, machines, and inference locations. Codex, Claude Code, Hermes, OpenClaw, and Open WebUI share a neutral observation model; deeper provider controls remain planned. Public source code does not mean public access to an operator's dashboard.
 
+Project authority will inherit owner-set, versioned defaults from the [per-project objective template](PROJECT_OBJECTIVE_TEMPLATE.md). Task prose may narrow those defaults but cannot grant itself a new action class, filesystem root, provider, network destination, or funding limit.
+
 ## 0.1 — Open-source foundation
 
 - [x] Multi-machine discovery, watched tasks, durable inbox, coordinator, and managed Codex actions.

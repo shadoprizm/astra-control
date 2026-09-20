@@ -42,6 +42,7 @@ A Codex row being visible does not mean the hub owns its live connection.
 - Tasks started by ThreadHelm use its App Server subprocess and expose the supported live actions while that connection remains valid.
 - Restarting or stopping the hub closes those subprocess connections. Pending approvals become invalid, must not be replayed, and must be requested again by the agent after the task resumes.
 - App Server and the local projections are version-sensitive. Incompatibility must fail visibly; ThreadHelm never edits the Codex database, authentication, permission policy, or desktop process.
+- The App Server initialization response is checked against an exact tested-version allowlist. An unknown version leaves observation available but disables send, create, steer, interrupt, archive, and approval responses until a disposable probe passes.
 
 New Git tasks use a sibling worktree and a new `codex/*` branch by default. This prevents two tasks from writing in one directory, but it does not compare task scopes or guarantee conflict-free integration.
 

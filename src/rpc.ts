@@ -5,6 +5,51 @@ import { randomUUID } from "node:crypto";
 import type { HostConfig } from "./types.js";
 import { APP_VERSION } from "./version.js";
 
+export const TESTED_CODEX_PROTOCOL_VERSIONS = [
+  "0.154.0-alpha.6.2",
+  "0.151.0-alpha.7.2",
+] as const;
+const CONTROL_METHODS = new Set([
+  "thread/resume",
+  "thread/start",
+  "thread/name/set",
+  "thread/archive",
+  "turn/start",
+  "turn/steer",
+  "turn/interrupt",
+]);
+
+export interface CodexProtocolAssessment {
+  version: string;
+  userAgent: string;
+  compatible: boolean;
+  error: string;
+}
+
+export function assessCodexProtocol(
+  initialize: any,
+  allowedVersions: readonly string[] = TESTED_CODEX_PROTOCOL_VERSIONS,
+): CodexProtocolAssessment {
+  const userAgent =
+      typeof initialize?.userAgent === "string" ? initialize.userAgent : "",
+    version = /Codex (?:Desktop|CLI)\/([^\s;(]+)/i.exec(userAgent)?.[1] || "";
+  if (!version)
+    return {
+      version: "unknown",
+      userAgent,
+      compatible: false,
+      error: "Codex did not report a recognizable App Server version.",
+    };
+  if (!allowedVersions.includes(version))
+    return {
+      version,
+      userAgent,
+      compatible: false,
+      error: `Codex ${version} has not passed this release's control protocol probe.`,
+    };
+  return { version, userAgent, compatible: true, error: "" };
+}
+
 export class Rpc extends EventEmitter {
   proc?: ChildProcessWithoutNullStreams;
   pending = new Map<
@@ -19,6 +64,11 @@ export class Rpc extends EventEmitter {
   connecting?: Promise<void>;
   ready = false;
   generation = "";
+  protocolChecked = false;
+  protocolVersion = "unknown";
+  protocolUserAgent = "";
+  controlAvailable = false;
+  controlError = "Codex control protocol has not been checked.";
   constructor(public host: HostConfig) {
     super();
   }
@@ -84,7 +134,7 @@ export class Rpc extends EventEmitter {
     p.on("error", ended);
     p.on("exit", ended);
     try {
-      await this.raw(
+      const initialized = await this.raw(
         "initialize",
         {
           clientInfo: {
@@ -96,6 +146,17 @@ export class Rpc extends EventEmitter {
         },
         15000,
       );
+      const protocol = assessCodexProtocol(
+        initialized,
+        this.host.codexVersions?.length
+          ? this.host.codexVersions
+          : TESTED_CODEX_PROTOCOL_VERSIONS,
+      );
+      this.protocolChecked = true;
+      this.protocolVersion = protocol.version;
+      this.protocolUserAgent = protocol.userAgent;
+      this.controlAvailable = protocol.compatible;
+      this.controlError = protocol.error;
       this.write({ method: "initialized", params: {} });
       this.ready = true;
     } catch (e) {
@@ -131,13 +192,26 @@ export class Rpc extends EventEmitter {
   }
   async call(method: string, params: any, timeout = 20000) {
     await this.connect();
+    if (CONTROL_METHODS.has(method)) this.assertControlAvailable();
     return this.raw(method, params, timeout);
+  }
+  assertControlAvailable() {
+    if (!this.protocolChecked || !this.controlAvailable)
+      throw new Error(
+        this.controlError ||
+          "Codex controls are disabled until the protocol probe succeeds.",
+      );
+  }
+  async ensureControlAvailable() {
+    await this.connect();
+    this.assertControlAvailable();
   }
   respond(id: any, result: any, generation: string) {
     if (generation !== this.generation || !this.ready)
       throw new Error(
         "This request belongs to an expired connection and cannot be reused. Resume the task and have the agent request approval again.",
       );
+    this.assertControlAvailable();
     this.write({ id, result });
   }
   close() {
