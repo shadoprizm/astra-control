@@ -1,63 +1,130 @@
-# Astra Control
+# ThreadHelm
 
-An open-source, self-hosted work dashboard for agent tasks and AI conversations across machines and runtimes.
+**One action inbox for AI work already running across your machines.**
 
-See Codex, Hermes, OpenClaw, and Open WebUI work in one owner-scoped recent feed. Codex keeps its existing controls; the other sources are observation-only in this release. A separate Runtime view reports connector health, model catalogs, router state, and loaded local models without turning raw inference requests into work cards.
+ThreadHelm is an open-source, self-hosted workspace for seeing Codex, Claude Code, Hermes, OpenClaw, and Open WebUI work in one place. It discovers work where it already lives, normalizes what each source can prove, and brings approvals, failures, interrupted work, and watched completions into a durable owner-only inbox.
 
-**Early preview · single owner · MIT licensed.** Independent project, not affiliated with OpenAI or Anthropic.
+Early preview · single owner · MIT licensed · independent project, not affiliated with OpenAI or Anthropic.
 
-## Run
+![ThreadHelm sample workspace showing the action inbox and unified work feed](docs/assets/demo-overview.png)
 
-Clone this repository and enter its directory first. Requires Node 22.13+ (built-in SQLite), Python 3, Codex signed in on each machine, and an existing noninteractive SSH connection for remote machines.
+## Why ThreadHelm
+
+Agent work rarely happens in one app. A coding task is running on a laptop, another is waiting on a server, a local model is loaded somewhere else, and the important approval is buried in a different client.
+
+ThreadHelm gives that scattered work one operating surface without pretending every runtime has the same controls:
+
+- **Observe first.** Existing work appears without requiring it to be launched from ThreadHelm.
+- **Route attention.** Ordinary chat stays quiet; decisions, failures, interrupted work, and watched completions remain visible until handled.
+- **Report capabilities truthfully.** Each source advertises the actions it actually supports. Observation-only sources never render fake mutation controls.
+- **Keep ownership local.** Full transcripts and provider credentials stay in their source systems. The hub stores normalized metadata, bounded excerpts, and its audit trail.
+
+## Product surfaces
+
+| Surface | What it answers |
+| --- | --- |
+| **Unified work** | What is running, waiting, complete, or stale across every connected source and machine? |
+| **Action inbox** | Which decisions, failures, delivery problems, or watched completions need me? |
+| **Task review** | What result came back, which branch and files changed, and what verification was reported? |
+| **Runtime** | Are connectors, model catalogs, routing, metrics, and loaded local models healthy? |
+| **Coordinator** | Which bounded actions should happen next across tasks, machines, and the inbox? |
+| **Activity** | Which instructions and decisions were dispatched, and what outcome was recorded? |
+
+The distinction is deliberate: conversations and agent tasks belong in **Work**; raw inference requests do not. Model and router health belongs in **Runtime**.
+
+The coordinator is on-demand rather than autonomous background traffic. It uses `codex exec` to choose a bounded action plan from the current workspace snapshot; deterministic server code revalidates every identifier and executes only supported actions. It cannot run an unrestricted shell, push, merge, deploy, permanently delete work, or remove worktrees.
+
+![ThreadHelm task review showing a synthetic completed Codex result](docs/assets/demo-review.png)
+
+## Supported today
+
+| Source | Discover existing work | Bounded detail | Actions from ThreadHelm |
+| --- | :---: | :---: | --- |
+| Codex | Yes, from configured local or SSH runtimes | Yes | Create, resume/send, steer, interrupt, answer supported requests, watch, and archive—subject to session ownership |
+| Claude Code | Yes, from local activity files | Yes | Observation only; waiting sessions can enter the inbox |
+| Hermes | Yes | Yes | Observation only; optional deep link |
+| OpenClaw | Yes | Yes | Observation only; approvals and failures can enter the inbox, but are handled in OpenClaw |
+| Open WebUI | Yes | Yes | Observation only; optional deep link |
+
+See the [compatibility matrix](docs/COMPATIBILITY.md) for exact status semantics, control boundaries, protocol assumptions, and tested versions. Claude controls and outbound-paired machine connectors remain [roadmap](docs/ROADMAP.md) work.
+
+## Try the product with sample data
+
+The sample workspace needs no Codex login, SSH connection, source credentials, or configuration:
+
+```sh
+npm ci
+npm run demo
+```
+
+Open `http://localhost:4318`. Demo data is synthetic, stored only in memory, and reset when the process stops. Real-agent controls are disabled; harmless actions such as watching work or handling a sample inbox item affect only the temporary demo. It cannot connect to an agent or mix with a configured workspace.
+
+## Connect your workspace
+
+Requirements:
+
+- Node.js 22.19 or newer
+- Python 3
+- Codex installed and signed in on each Codex machine
+- Existing noninteractive SSH connectivity for any remote Codex machine
 
 ```sh
 npm ci
 npm run build
 mkdir -p data
 cp config.example.json data/config.json
-# Adjust paths, host names, and optional private HTTPS origin.
 npm start
 ```
 
-Visit `http://localhost:4318`. The server binds only to loopback. Keep `data/` private; it contains bounded excerpts, chat, and the durable inbox. It is excluded from Git. External source credentials live in separate `0600` files and are never returned to the browser or persisted in SQLite. The coordinator and Codex workers continue to use the installed Codex login.
+Before starting, edit `data/config.json`:
 
-## What works
+1. Replace the example host paths and SSH aliases with your own.
+2. Remove unavailable entries from `sources`. Configure loopback endpoint and `0600` credential files for network sources; configure absolute owner-local activity paths for Claude Code.
+3. Remove `runtime` if you do not run a compatible local model broker.
 
-- A paginated, filterable feed of every non-archived Codex task, including subagents, plus visible Hermes, OpenClaw, and Open WebUI work (and pinned archives when a source returns them). Exact propagated correlation identifiers can collapse provenance; title, text, and timestamp similarity never do.
-- Provider-neutral status, source/profile/agent, execution host, requested/resolved model, inference locality, confidence, watch state, and a bounded latest excerpt. Recent detail is fetched on demand (at most 30 bounded entries); full transcripts stay in their source systems.
-- Dedicated action inbox for completed turns, failures, delivery problems, and live managed-task permission requests. Current failed, interrupted, and abandoned in-progress work is backfilled on first observation; obsolete state alerts resolve when the source clears. Repeated updates are grouped by task, with filtering, search, sorting, and batch handling for non-approval items.
-- Result-first task review with the latest response, branch, changed-file count, reported verification evidence, compact conversation history, and read-only Git state (local refs, no automatic fetch).
-- New tasks assigned to a searchable saved Codex project through the documented Codex App Server protocol. New Git work is isolated in a sibling `codex/*` worktree by default; message, steer, interrupt, and answer supported requests in the dashboard.
-- Per-machine and per-source diagnostics show exact captured-item totals, active work, runtime/project discovery, last contact, and connector errors, with an explicit retry action. The sidebar and API expose the installed version and Git commit.
-- Idle, unowned existing threads can be resumed. Desktop-owned threads remain read-only here, with a Codex link. Native desktop permission requests cannot be reliably enumerated or answered by this MVP.
-- An on-demand autonomous coordinator using configurable `codex exec` model/reasoning settings (GPT-6 Astra at xhigh by default) recommends a bounded action plan, then immediately executes each validated action in order. It can start, steer, interrupt, watch, archive, refresh, handle routine inbox cleanup, and answer supported Codex requests. Every action receives a durable accepted/failed result in the coordinator conversation. No recurring model calls or periodic chat notifications.
-- Idempotent command records; uncertain delivery is retained for review and is never retried automatically.
-- Independent source health and failure containment. Hermes and Open WebUI poll every 12 seconds; OpenClaw uses protocol-v4 session events plus 60-second reconciliation. Last snapshots remain visible and become stale after 45 seconds.
-- Runtime inventory for the GPU broker, router, safe metrics, known providers, and loaded local models. Prompts and raw completion traffic are deliberately excluded.
+Open `http://localhost:4318`. The service binds to loopback by default.
 
-## Honest limits
+For a durable install, use `python3 scripts/install-local.py` on macOS or `python3 scripts/install-linux.py` on Linux after configuration and a clean commit. The installers run the complete verification suite, build a checksum-verified artifact, preserve private state, and record the exact release identity. Read [hosting](docs/HOSTING.md) and [operations](docs/OPERATIONS.md) before publishing access outside the machine.
 
-This is not a replacement for each source’s native client. Hermes, OpenClaw, and Open WebUI are observation-only: their cards link back to their source when a public deep-link base is configured, and mutation controls are not rendered. Existing desktop-owned Codex tasks cannot be steered or interrupted here until their owning client releases them. Start new Codex tasks here for full control. The create form lists saved projects from compatible Codex runtimes, disambiguates duplicate names by checkout, and falls back to checkouts observed in task history. For Git repositories, the default isolated mode creates a sibling worktree and a new `codex/*` branch from the selected checkout's current `HEAD`. Non-Git checkouts cannot use isolated mode. Running directly in an existing checkout requires an explicit confirmation when another active task is already using it.
+## What makes it safe to trust
 
-Coordinator authority is intentionally finite and auditable. Plans are schema-validated against the current task, project, host, and inbox snapshot before deterministic server code executes them. Permanent deletion, push, merge, deployment, and worktree removal are not coordinator actions. Archiving is recoverable in Codex, active tasks must be interrupted first, and tasks with unresolved approvals cannot be archived. Configure the operator under `coordinator` in `data/config.json`; lower the model or reasoning effort only if latency/cost matters more than judgment quality.
+- Source adapters fail independently; one incompatible source does not take down the workspace.
+- Work is correlated only by an exact propagated identifier. Similar titles, text, or timestamps never merge conversations.
+- SQLite contains normalized metadata and at most a 4,000-character latest excerpt. Detail is fetched on demand and bounded to 30 entries.
+- Credential files must be owner-only (`0600`), network source endpoints must be loopback, Claude activity paths must be absolute and owner-local, and secrets are stripped from Runtime payloads and errors.
+- Command delivery is idempotent. Uncertain delivery remains visible for review and is never retried automatically.
+- New Git work uses a sibling `codex/*` worktree by default. Running in an occupied checkout requires an explicit override.
+- Public access requires an authenticated reverse proxy plus application-side identity verification. Never expose the bare dashboard or an agent runtime to the Internet.
 
-Worktrees prevent simultaneous edits in one directory, but they do not prove that task scopes are compatible or make later merges conflict-free. Repository-wide reservations, scope comparison, merge/push actions, and deployment verification remain roadmap work.
+The [security policy](SECURITY.md) explains the owner-only threat model and private reporting process. The [architecture](docs/ARCHITECTURE.md) explains normalization, bounded storage, correlation, and repository coordination.
 
-Task discovery reads Codex's local SQLite projections in read-only mode and checks advisory writer locks without changing contents. These schemas are internal and version-dependent. Current tested versions are recorded in `docs/VERIFICATION.md`. App Server is experimental; incompatible versions fail visibly. The dashboard never edits Codex databases, authentication, permission policies for existing threads, or existing desktop processes.
+## Important limits
 
-Snapshots refresh without calling a model. Hermes’s five-minute activity flag is presented as “Recently active” and explicitly marked heuristic. OpenClaw active run IDs and Open WebUI’s unfinished-generation flag are authoritative source facts. A stale source is shown as offline after 45 seconds; this does not prove a remote agent stopped. A completed turn does not imply release readiness; pushes, merges, deployment, and automatic retry remain separate.
+ThreadHelm is not a replacement for each source’s native client.
 
-Managed agents are tied to the hub's App Server subprocesses. Restarting/stopping the hub interrupts this ownership, and pending approval IDs expire. Reopen a task to inspect its state before resuming. Closing the browser does not stop the hub or its agents. Keep the hub machine running and Codex signed in.
+- Claude Code, Hermes, OpenClaw, and Open WebUI are observation-only in this release.
+- The standalone panel does not capture ChatGPT conversations or Codex Cloud tasks. Codex discovery is limited to the configured local or SSH runtime projections.
+- Existing desktop-owned Codex tasks cannot be steered or interrupted until their owning client releases them. Start a Codex task from ThreadHelm for its full supported control surface.
+- Managed Codex runtimes currently belong to hub subprocesses. Restarting the hub interrupts that ownership and invalidates pending approvals; those approval IDs are never replayed, so the agent must issue a new request after the task resumes.
+- Worktrees isolate directories; they do not prove that two task scopes are compatible or that their branches will merge cleanly.
+- A completed agent turn is a review checkpoint, not evidence that code was pushed, merged, deployed, or production-ready.
+- Runtime status reports observation freshness. An offline source does not prove that its remote agent stopped.
 
-## Hosting and authentication
+Permanent deletion, automatic retry, push, merge, deployment, and worktree removal are intentionally outside the coordinator’s authority. See [the full roadmap](docs/ROADMAP.md) for persistent managed runtimes, repository reservations, review/release actions, notifications, and additional providers.
 
-Run on macOS or your own Linux server. Public browser access uses Cloudflare Tunnel with Cloudflare Access sign-in and server-side JWT verification; viewing devices do not need Tailscale. Private Tailscale Serve deployments are also supported. The dashboard stays bound to loopback.
+## Configuration at a glance
 
-See [hosting](docs/HOSTING.md) for authentication, configuration, Linux service installation, and deployment verification. Do not expose an unauthenticated port. Public source code and private task data are separate: keep configuration, transcripts, credentials, and runtime state out of Git.
+`config.example.json` contains one example of every connector. A typical installation has:
 
-The machine connector uses existing SSH settings; no SSH keys, inbound SSH settings, or firewall rules are changed. Codex credentials stay on their respective machines. The on-demand coordinator runs locally with user config disabled and a read-only sandbox, using only supplied task excerpts; it cannot mutate the workspace directly. Its structured decisions are revalidated and executed by a fixed server-side action router.
+- `hosts`: the hub machine plus optional SSH-reachable Codex machines;
+- `sources`: zero or more Claude Code, Hermes, OpenClaw, and Open WebUI adapters;
+- `runtime`: an optional loopback model/router inventory source;
+- `coordinator`: optional model, reasoning, and maximum-action settings;
+- `publicOrigin` plus an authentication mode only when using authenticated HTTPS access.
 
-## Checks
+Keep `data/` private. It contains configuration, bounded work excerpts, the inbox, and the audit trail and is excluded from Git. Provider credentials live outside the repository and are never returned to the browser.
+
+## Verify a change
 
 ```sh
 npm run build
@@ -65,4 +132,37 @@ npm test
 python3 -m unittest discover -s tests -p '*_test.py'
 ```
 
-See [verification](docs/VERIFICATION.md), [operations](docs/OPERATIONS.md), [architecture](docs/ARCHITECTURE.md), and [contributing](CONTRIBUTING.md).
+The current automated and live acceptance record is in [verification](docs/VERIFICATION.md).
+
+## Become a Founding Operator
+
+We are recruiting the first 15 people who supervise agents across multiple sources or machines every week. Founding Operators get hands-on installation help, a fast bug-response loop, and direct influence over the compatibility matrix. In return, we ask for two short rounds of honest feedback over four weeks.
+
+Start with disposable work you control. No endorsement, star, public quote, screenshot, or case study is required. [Apply through the opt-in GitHub form](https://github.com/shadoprizm/threadhelm/issues/new?template=founding-operator.yml).
+
+## Help shape the project
+
+The most useful contributions are grounded in a real supervision workflow:
+
+- report a source version that works—or fails—with the [compatibility contract](docs/COMPATIBILITY.md);
+- propose an adapter with its documented API, ownership model, and honest minimum capability set;
+- contribute synthetic fixtures for source failures, reconnects, pagination, and approval lifecycles;
+- improve installation on a clean macOS or Linux machine;
+- document a case where the inbox prevented missed work or reduced context switching.
+
+Start with an issue before a large change. Integration requests should identify the source’s documented API and distinguish observation from control. Read [contributing](CONTRIBUTING.md) for the development and privacy rules.
+
+## Project map
+
+- [Compatibility](docs/COMPATIBILITY.md) — exact source and capability support
+- [Roadmap](docs/ROADMAP.md) — delivered and planned milestones
+- [Architecture](docs/ARCHITECTURE.md) — data model, adapters, controls, and coordination rules
+- [Hosting](docs/HOSTING.md) — server installation and authenticated browser access
+- [Operations](docs/OPERATIONS.md) — backup, migration, recovery, and updates
+- [Verification](docs/VERIFICATION.md) — automated and live evidence
+- [Contributing](CONTRIBUTING.md) — issue, test, privacy, and pull-request expectations
+- [Security](SECURITY.md) — threat model and private vulnerability reporting
+
+---
+
+If your agents already work across more than one machine or runtime, ThreadHelm is being built for your day-to-day reality. Try it on disposable work first, tell us exactly where the model breaks, and help make multi-agent supervision boringly reliable.

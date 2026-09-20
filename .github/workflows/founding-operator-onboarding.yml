@@ -1,0 +1,36 @@
+name: Founding Operator onboarding
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  acknowledge:
+    if: startsWith(github.event.issue.title, '[Founding Operator]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create program labels
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh label create design-partner --color 6f42c1 --description "Opted-in Founding Operator applicant" --force
+          gh label create "founding-operator:applied" --color c5def5 --description "Founding Operator application received" --force
+          gh label create "founding-operator:qualified" --color 0e8a16 --description "Maintainer verified design-partner fit" --force
+      - name: Apply status and acknowledge once
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          gh issue edit "$ISSUE_NUMBER" --add-label design-partner --add-label "founding-operator:applied"
+          existing="$(gh api --paginate "repos/$GH_REPO/issues/$ISSUE_NUMBER/comments" --jq '.[].body')"
+          if printf '%s' "$existing" | grep -Fq '<!-- founding-operator-ack-v1 -->'; then
+            exit 0
+          fi
+          gh issue comment "$ISSUE_NUMBER" --body-file growth/templates/founding-operator-ack.md

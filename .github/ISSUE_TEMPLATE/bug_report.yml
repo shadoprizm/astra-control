@@ -1,0 +1,78 @@
+name: Bug report
+description: Report a reproducible problem without sharing private work data.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping make ThreadHelm reliable. Remove credentials, transcripts, private hostnames, repository names, and personal screenshots before submitting. Report suspected vulnerabilities through the private process in `SECURITY.md`.
+  - type: input
+    id: version
+    attributes:
+      label: ThreadHelm version and commit
+      description: Copy the version and commit shown in the sidebar or release manifest.
+      placeholder: "v0.3.0, commit abc1234"
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Affected surface
+      options:
+        - Unified work
+        - Action inbox
+        - Task review or Codex control
+        - Runtime
+        - Source connector
+        - Installation or upgrade
+        - Authentication or hosting
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Include operating system, architecture, Node.js version, and browser when relevant.
+      placeholder: "macOS 15 arm64, Node 22.19, Firefox 142"
+    validations:
+      required: true
+  - type: input
+    id: source
+    attributes:
+      label: Source and version
+      description: For connector issues, name the source and exact version when available.
+      placeholder: "Codex 0.x, Hermes x.y, OpenClaw x.y, or Open WebUI x.y"
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Start from a clean or disposable setup and list the smallest sequence that reproduces the issue.
+      placeholder: |
+        1. Configure one synthetic source…
+        2. Open Unified work…
+        3. Observe…
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior and sanitized evidence
+      description: Include a short sanitized error or synthetic fixture. Do not attach a real transcript or credential.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety check
+      options:
+        - label: I removed credentials, transcripts, private hostnames, repository names, and personal work from this report.
+          required: true
+        - label: This is not a vulnerability report requiring private disclosure.
+          required: true

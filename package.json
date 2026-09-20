@@ -1,10 +1,11 @@
 {
-  "name": "astra-control",
-  "version": "0.2.1",
+  "name": "threadhelm",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "tsx src/server.ts",
+    "demo": "tsx src/server.ts --demo",
     "build": "tsc",
     "start": "node dist/server.js",
     "test": "tsx --test tests/*.test.ts"
@@ -21,7 +22,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/shadoprizm/astra-control.git"
+    "url": "https://github.com/shadoprizm/threadhelm.git"
   },
   "dependencies": {
     "@openclaw/gateway-client": "2026.8.1",

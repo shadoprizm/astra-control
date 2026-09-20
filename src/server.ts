@@ -9,12 +9,18 @@ import type {Config} from './types.js';
 import {createAccessGuard} from './auth.js';
 import {securityHeaders,ActionBudget} from './http-security.js';
 import {releaseIdentity} from './version.js';
+import {demoConfig,demoRejectsMutation,demoRequested} from './demo.js';
 
 const root=resolve(fileURLToPath(new URL('..',import.meta.url)));
 mkdirSync(`${root}/data`,{recursive:true,mode:0o700});
-const config:Config=JSON.parse(readFileSync(process.env.ASTRA_CONFIG||`${root}/data/config.json`,'utf8'));
+const demoMode=demoRequested();
+const configPath=process.env.THREADHELM_CONFIG||process.env.ASTRA_CONFIG;
+if(demoMode&&configPath)throw new Error('Demo mode refuses THREADHELM_CONFIG so sample data cannot mix with a configured workspace.');
+const demoPort=process.env.THREADHELM_DEMO_PORT||process.env.ASTRA_DEMO_PORT;
+const config:Config=demoMode?demoConfig(Number(demoPort||4318)):JSON.parse(readFileSync(configPath||`${root}/data/config.json`,'utf8'));
+if(config.mode==='demo'&&!demoMode)throw new Error('Demo mode can only be enabled with --demo or THREADHELM_DEMO=1.');
 const authorize=createAccessGuard(config);
-const store=new Store(`${root}/data/control.sqlite`),engine=new Engine(config,store,root);
+const store=new Store(demoMode?':memory:':`${root}/data/control.sqlite`),engine=new Engine(config,store,root);
 const csrf=randomBytes(32).toString('hex');
 const peers=new Set<ServerResponse>();
 const publicOrigin=config.publicOrigin;
@@ -37,14 +43,15 @@ const server=createServer({requestTimeout:15000,headersTimeout:10000},async(req,
   const path=new URL(req.url||'/','http://localhost').pathname;
   if(req.method!=='GET'&&req.method!=='HEAD'){
    const origin=req.headers.origin;if(!origin||!mutationOrigins.has(origin))return json(res,403,{error:'Invalid origin'});
-   const token=req.headers['x-astra-control'];if(typeof token!=='string'||!equal(token,csrf))return json(res,403,{error:'Reload the dashboard before submitting this action'});
+   const token=req.headers['x-threadhelm']||req.headers['x-astra-control'];if(typeof token!=='string'||!equal(token,csrf))return json(res,403,{error:'Reload the dashboard before submitting this action'});
    if(!actionBudget.accept(identity.subject)){res.setHeader('Retry-After','60');return json(res,429,{error:'Too many actions. Wait a minute before trying again.'});}
+   if(demoMode&&demoRejectsMutation(path))return json(res,409,{error:'This control is disabled in demo mode. Start a configured workspace to control real agents.'});
   }
   if(path==='/api/state'&&req.method==='GET')return json(res,200,{...engine.state(),csrf,version:release.version,build:release.commit,installedAt:release.installedAt});
   if(path==='/api/work-items'&&req.method==='GET'){const query=new URL(req.url||'','http://localhost').searchParams;return json(res,200,engine.workItems({source:optionalText(query.get('source'),'source',100)||undefined,host:optionalText(query.get('host'),'host',100)||undefined,status:optionalText(query.get('status'),'status',40)||undefined,kind:optionalText(query.get('kind'),'kind',40)||undefined,provider:optionalText(query.get('provider'),'provider',100)||undefined,model:optionalText(query.get('model'),'model',300)||undefined,locality:optionalText(query.get('locality'),'locality',20)||undefined,search:optionalText(query.get('search'),'search',300)||undefined,watched:query.get('watched')==='true',limit:Number(query.get('limit')||50),cursor:query.get('cursor')||undefined}));}
   const workMatch=path.match(/^\/api\/work-items\/([^/]+)$/);if(workMatch&&req.method==='GET')return json(res,200,await engine.detail(decodeURIComponent(workMatch[1])));
   const workWatchMatch=path.match(/^\/api\/work-items\/([^/]+)\/watch$/);
-  if(path==='/healthz')return json(res,200,{ok:true,version:release.version,build:release.commit,installedAt:release.installedAt,hosts:engine.state().hosts.map(host=>({id:host.id,online:host.online,inventoryCount:host.inventoryCount})),sources:engine.state().sources.map(source=>({id:source.id,online:source.online,stale:source.stale,itemCount:source.itemCount}))});
+  if(path==='/healthz')return json(res,200,{ok:true,demo:demoMode,version:release.version,build:release.commit,installedAt:release.installedAt,hosts:engine.state().hosts.map(host=>({id:host.id,online:host.online,inventoryCount:host.inventoryCount})),sources:engine.state().sources.map(source=>({id:source.id,online:source.online,stale:source.stale,itemCount:source.itemCount}))});
   if(path==='/api/events'&&req.method==='GET'){if(peers.size>=8)return json(res,429,{error:'Too many open dashboard streams'});res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-store','Connection':'keep-alive'});res.write('event: connected\ndata: {}\n\n');peers.add(res);const timer=setInterval(()=>res.write(': heartbeat\n\n'),20000);const expiry=identity.expiresAt?setTimeout(()=>res.end(),Math.min(2147483647,Math.max(0,identity.expiresAt-Date.now()))):undefined;res.on('close',()=>{peers.delete(res);clearInterval(timer);if(expiry)clearTimeout(expiry);});return;}
   if(path==='/api/detail'&&req.method==='GET'){const key=new URL(req.url||'','http://localhost').searchParams.get('key');return json(res,200,await engine.detail(text(key,'task')));}
   if(req.method==='POST'){
@@ -69,6 +76,6 @@ const server=createServer({requestTimeout:15000,headersTimeout:10000},async(req,
   res.writeHead(200,{'Content-Type':types[extname(file)]+'; charset=utf-8','Cache-Control':'no-store'});res.end(req.method==='HEAD'?'':readFileSync(`${root}/public/${file}`));
  }catch(e){json(res,400,{error:(e as Error).message});}
 });
-server.listen(config.port,'127.0.0.1',()=>{console.log(`Astra Control listening on 127.0.0.1:${config.port}`);engine.start();});
+server.listen(config.port,'127.0.0.1',()=>{console.log(`ThreadHelm${demoMode?' demo':''} listening on 127.0.0.1:${config.port}`);engine.start();});
 function stop(){engine.close();for(const p of peers)p.end();server.close(()=>{store.close();process.exit(0);});setTimeout(()=>process.exit(0),3000).unref();}
 process.on('SIGTERM',stop);process.on('SIGINT',stop);

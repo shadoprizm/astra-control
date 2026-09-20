@@ -2,7 +2,7 @@
 
 ## Direction
 
-One self-hosted workspace for supervising agent tasks and AI conversations across repositories, machines, and inference locations. Codex, Hermes, OpenClaw, and Open WebUI share a neutral observation model; Claude Code and additional control surfaces remain planned. Public source code does not mean public access to an operator's dashboard.
+One self-hosted workspace for supervising agent tasks and AI conversations across repositories, machines, and inference locations. Codex, Claude Code, Hermes, OpenClaw, and Open WebUI share a neutral observation model; deeper provider controls remain planned. Public source code does not mean public access to an operator's dashboard.
 
 ## 0.1 — Open-source foundation
 
@@ -28,7 +28,7 @@ One self-hosted workspace for supervising agent tasks and AI conversations acros
 - [ ] Display observed capabilities and session ownership per task.
 - [ ] Move runtime lifetime out of the web hub, so a browser or hub restart does not stop agents.
 - [ ] Prefer protocol discovery/events over internal SQLite projections wherever the runtime supports them.
-- [ ] Document the compatibility matrix and preserve the read-only fallback when a desktop session cannot be attached.
+- [x] Document the compatibility matrix and preserve the read-only fallback when a desktop session cannot be attached.
 
 Success means a user can act on a shared live session without switching windows, losing history, or accidentally running a second writer. Do not market desktop integration as complete until this is verified against the actual desktop client.
 
@@ -36,7 +36,8 @@ Success means a user can act on a shared live session without switching windows,
 
 - [x] Extract a provider contract for inventory, bounded detail/events, health, model catalog, and capability reporting.
 - [ ] Extend the contract with source-specific create/resume, send/steer, interrupt, and request controls after observation proves stable.
-- [ ] Add a Claude Code adapter against its documented integration surface.
+- [x] Add read-only Claude Code local activity capture with bounded detail and live waiting-state observation.
+- [ ] Replace or extend the version-sensitive Claude activity projection with a documented control/event surface when one is available.
 - [ ] Normalize status and inbox events while retaining provider-native request schemas and restrictions.
 - [ ] Pair outbound machine connectors so workstations do not need inbound public ports.
 

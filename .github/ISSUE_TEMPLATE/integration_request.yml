@@ -1,0 +1,76 @@
+name: Integration request
+description: Propose a new source adapter or deeper capability for an existing source.
+title: "[Integration]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ThreadHelm accepts only capabilities supported by a documented, testable source surface. Observation and control are reviewed separately.
+  - type: input
+    id: source
+    attributes:
+      label: Source
+      placeholder: "Provider and product name"
+    validations:
+      required: true
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Owner workflow
+      description: Describe where the work runs, what needs attention, and what the owner should be able to do.
+    validations:
+      required: true
+  - type: textarea
+    id: api
+    attributes:
+      label: Documented integration surface
+      description: Link to official API, SDK, protocol, event, or CLI documentation and note its stability.
+    validations:
+      required: true
+  - type: checkboxes
+    id: capabilities
+    attributes:
+      label: Requested capabilities
+      options:
+        - label: Inventory existing work
+        - label: Bounded recent detail
+        - label: Events or efficient reconciliation
+        - label: Health and version
+        - label: Model or runtime catalog
+        - label: Deep links
+        - label: Create or resume
+        - label: Send or steer
+        - label: Interrupt
+        - label: Approvals or questions
+        - label: Git or repository context
+  - type: textarea
+    id: ownership
+    attributes:
+      label: Ownership and permission model
+      description: Explain who owns a live session, how clients coexist, which permissions are required, and what happens on reconnect.
+    validations:
+      required: true
+  - type: textarea
+    id: status
+    attributes:
+      label: Source status semantics
+      description: Explain how the source proves active, waiting, completed, failed, stale, and archived states. Identify any heuristic.
+    validations:
+      required: true
+  - type: textarea
+    id: test
+    attributes:
+      label: Safe verification path
+      description: Describe how this could be tested with synthetic fixtures and disposable work.
+    validations:
+      required: true
+  - type: checkboxes
+    id: understanding
+    attributes:
+      label: Capability contract
+      options:
+        - label: I understand that discovery does not imply control and unsupported mutations will remain disabled.
+          required: true
+        - label: I have not included credentials, transcripts, private hostnames, or personal work.
+          required: true
+

@@ -2,13 +2,14 @@
   "port": 4318,
   "hosts": [
     {"id":"local","name":"MacBook Pro","codex":"/Applications/ChatGPT.app/Contents/Resources/codex","python":"python3"},
-    {"id":"astra","name":"Astra","ssh":"your-user@your-existing-ssh-host","codex":"/usr/lib/chatgpt/resources/codex"}
+    {"id":"server","name":"Build Server","ssh":"your-user@your-existing-ssh-host","codex":"/usr/lib/chatgpt/resources/codex"}
   ],
   "sources": [
-    {"id":"hermes-astra","name":"Hermes","adapter":"hermes","hostId":"astra","baseUrl":"http://127.0.0.1:9119","tokenFile":"/home/you/.config/astra-control/hermes-dashboard.token","profiles":["default","astra","qwen-local","peaktasks","peaktasks-sonnet","peaktasks-webchat"],"locality":{"profiles":{"qwen-local":"local"}}},
-    {"id":"openclaw-astra","name":"OpenClaw","adapter":"openclaw","hostId":"astra","baseUrl":"ws://127.0.0.1:18789","tokenFile":"/home/you/.config/astra-control/openclaw-bootstrap.token","deviceFile":"/home/you/.config/astra-control/openclaw-device.json","configuredAgentsOnly":true,"locality":{"providers":{"your-cloud-provider":"cloud"}}},
-    {"id":"openwebui-astra","name":"Open WebUI","adapter":"openwebui","hostId":"astra","baseUrl":"http://127.0.0.1:3000","tokenFile":"/home/you/.config/astra-control/openwebui-owner.token"}
+    {"id":"claude-local","name":"Claude Code","adapter":"claude","hostId":"local","projectsDir":"/Users/you/.claude/projects","sessionsDir":"/Users/you/.claude/sessions","maxSessions":500,"locality":{"providers":{"anthropic":"cloud"}}},
+    {"id":"hermes-server","name":"Hermes","adapter":"hermes","hostId":"server","baseUrl":"http://127.0.0.1:9119","tokenFile":"/home/you/.config/threadhelm/hermes-dashboard.token","profiles":["default","qwen-local","peaktasks","peaktasks-sonnet","peaktasks-webchat"],"locality":{"profiles":{"qwen-local":"local"}}},
+    {"id":"openclaw-server","name":"OpenClaw","adapter":"openclaw","hostId":"server","baseUrl":"ws://127.0.0.1:18789","tokenFile":"/home/you/.config/threadhelm/openclaw-bootstrap.token","deviceFile":"/home/you/.config/threadhelm/openclaw-device.json","configuredAgentsOnly":true,"locality":{"providers":{"your-cloud-provider":"cloud"}}},
+    {"id":"openwebui-server","name":"Open WebUI","adapter":"openwebui","hostId":"server","baseUrl":"http://127.0.0.1:3000","tokenFile":"/home/you/.config/threadhelm/openwebui-owner.token"}
   ],
   "coordinator":{"model":"gpt-6-astra","reasoningEffort":"xhigh","maxActions":12},
-  "runtime":{"id":"gpu-broker","name":"Astra GPU broker","hostId":"astra","baseUrl":"http://127.0.0.1:8082","loadedModelUrls":["http://127.0.0.1:8083/models","http://127.0.0.1:8085/models","http://127.0.0.1:11434/api/ps"]}
+  "runtime":{"id":"gpu-broker","name":"Local model broker","hostId":"server","baseUrl":"http://127.0.0.1:8082","loadedModelUrls":["http://127.0.0.1:8083/models","http://127.0.0.1:8085/models","http://127.0.0.1:11434/api/ps"]}
 }

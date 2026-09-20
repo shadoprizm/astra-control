@@ -5,6 +5,13 @@ export function workspaceTasks(tasks,statusFor){
  };
 }
 
+const volatileUiFields=new Set(['csrf','now','lastSeen','observedAt','updatedAt']);
+
+/** Build a stable comparison key without poll timestamps that do not change rendered content. */
+export function uiStateFingerprint(value){
+ return JSON.stringify(value,(key,item)=>volatileUiFields.has(key)?undefined:item);
+}
+
 const pathTail=(path,parts=3)=>String(path||'').replace(/[\\/]+$/,'').split(/[\\/]/).filter(Boolean).slice(-parts).join('/');
 
 export function projectChoiceLabel(project){

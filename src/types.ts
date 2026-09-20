@@ -6,7 +6,7 @@ export type WorkKind='agent-task'|'conversation'|'automation';
 export type WorkStatus='active'|'recent'|'waiting'|'idle'|'completed'|'failed'|'offline'|'unknown';
 export type StatusConfidence='authoritative'|'heuristic';
 export type Locality='local'|'cloud'|'hybrid'|'unknown';
-export type AdapterName='codex'|'hermes'|'openclaw'|'openwebui';
+export type AdapterName='codex'|'claude'|'hermes'|'openclaw'|'openwebui';
 export interface WorkCapabilities {detail:boolean;deepLink:boolean;send:boolean;steer:boolean;pause:boolean;approve:boolean;git:boolean;}
 export interface WorkSourceRef {adapter:AdapterName;sourceId:string;hostId:string;nativeId:string;profile?:string;agent?:string;deepLink?:string;capabilities:WorkCapabilities;}
 export interface ExecutionMetadata {host:string;provider?:string;requestedModel?:string;resolvedModel?:string;locality:Locality;}
@@ -20,12 +20,14 @@ export interface WorkItem {
 }
 export interface SourceHealth {id:string;adapter:AdapterName;name:string;hostId:string;online:boolean;stale:boolean;lastSeen:number;error:string;version?:string;activeCount:number;itemCount:number;}
 interface BaseSourceConfig {id:string;name?:string;hostId:string;baseUrl:string;deepLinkBase?:string;tokenFile:string;enabled?:boolean;locality?:{providers?:Record<string,Locality>;models?:Record<string,Locality>;profiles?:Record<string,Locality>;};}
+interface LocalSourceConfig {id:string;name?:string;hostId:string;enabled?:boolean;locality?:{providers?:Record<string,Locality>;models?:Record<string,Locality>;profiles?:Record<string,Locality>;};}
+export interface ClaudeSourceConfig extends LocalSourceConfig {adapter:'claude';projectsDir:string;sessionsDir?:string;maxSessions?:number;}
 export interface HermesSourceConfig extends BaseSourceConfig {adapter:'hermes';profiles:string[];}
 export interface OpenWebUISourceConfig extends BaseSourceConfig {adapter:'openwebui';}
 export interface OpenClawSourceConfig extends BaseSourceConfig {adapter:'openclaw';deviceFile:string;configuredAgentsOnly?:boolean;reconcileSeconds?:number;}
-export type SourceConfig=HermesSourceConfig|OpenWebUISourceConfig|OpenClawSourceConfig;
+export type SourceConfig=ClaudeSourceConfig|HermesSourceConfig|OpenWebUISourceConfig|OpenClawSourceConfig;
 export interface RuntimeConfig {id?:string;name?:string;hostId:string;baseUrl:string;tokenFile?:string;loadedModelUrls?:string[];}
 export interface RuntimeSnapshot {observedAt:number;online:boolean;error:string;catalog:any[];router:any;metrics:Record<string,number>;loadedModels:any[];providers:string[];}
 export interface CoordinatorConfig {model?:string;reasoningEffort?:'low'|'medium'|'high'|'xhigh'|'max'|'ultra';maxActions?:number;}
-export interface Config { port:number; hosts:HostConfig[]; sources?:SourceConfig[]; runtime?:RuntimeConfig; coordinator?:CoordinatorConfig; publicOrigin?:string; allowedLogin?:string; auth?:{mode:'cloudflare-access';issuer:string;audience:string;allowedEmails:string[]}; }
+export interface Config { port:number; hosts:HostConfig[]; mode?:'demo'; sources?:SourceConfig[]; runtime?:RuntimeConfig; coordinator?:CoordinatorConfig; publicOrigin?:string; allowedLogin?:string; auth?:{mode:'cloudflare-access';issuer:string;audience:string;allowedEmails:string[]}; }
 export const taskKey = (host:string,id:string) => `${host}:${id}`;

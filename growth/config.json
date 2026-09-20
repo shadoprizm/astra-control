@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "campaign_name": "Path to 1,000 GitHub stars",
+  "product_name": "ThreadHelm",
+  "repository": "shadoprizm/threadhelm",
+  "repository_url": "https://github.com/shadoprizm/threadhelm",
+  "start_date": "2026-09-21",
+  "duration_days": 90,
+  "north_star": "Qualified users who run the product and would notice if it disappeared",
+  "star_targets": [
+    { "day": 14, "stars": 100 },
+    { "day": 35, "stars": 300 },
+    { "day": 63, "stars": 600 },
+    { "day": 90, "stars": 1000 }
+  ],
+  "partner_targets": {
+    "applications": 40,
+    "qualified": 25,
+    "installed": 15,
+    "case_studies": 5
+  },
+  "discovery_queries": [
+    "agent orchestration in:name,description,readme stars:5..500 archived:false",
+    "codex dashboard in:name,description,readme stars:2..500 archived:false",
+    "openclaw in:name,description,readme stars:2..500 archived:false",
+    "self hosted ai agents in:name,description,readme stars:5..500 archived:false"
+  ],
+  "qualification": {
+    "minimum_score": 4,
+    "active_within_days": 120,
+    "required_keywords": [
+      "agent",
+      "codex",
+      "openclaw",
+      "orchestrat",
+      "claude",
+      "llm"
+    ],
+    "codex_context_keywords": [
+      "ai",
+      "assistant",
+      "coding",
+      "developer",
+      "openai"
+    ],
+    "preferred_topics": [
+      "ai-agents",
+      "agent-orchestration",
+      "codex",
+      "openclaw",
+      "self-hosted",
+      "developer-tools"
+    ]
+  },
+  "rules": [
+    "Never auto-post to a community, send a direct message, or email a candidate.",
+    "Only contact people who applied, explicitly opted in, or asked a relevant public question.",
+    "A human must verify every claim, link, channel rule, and target before publishing.",
+    "Do not buy stars, run giveaways for stars, use engagement pods, or trade follows.",
+    "Treat stars as a distribution signal; activation, retention, and useful feedback are the goals."
+  ]
+}

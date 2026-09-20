@@ -1,0 +1,54 @@
+name: Growth content drafts
+
+on:
+  schedule:
+    - cron: '30 12 * * 3'
+  workflow_dispatch:
+    inputs:
+      content_id:
+        description: Optional content queue ID; blank renders the next seven days
+        type: string
+        required: false
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: growth-content-drafts
+  cancel-in-progress: true
+
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Render approval-gated drafts
+        env:
+          CONTENT_ID: ${{ inputs.content_id }}
+        run: |
+          if [ -n "$CONTENT_ID" ]; then
+            python3 scripts/growth.py content --id "$CONTENT_ID" > growth-content.md
+          else
+            python3 scripts/growth.py content --window 7 > growth-content.md
+          fi
+          cat growth-content.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Open the repository review issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          title="[Growth content] $(date -u +%G-W%V) approval queue"
+          gh label create content-draft --color fbca04 --description "Draft requiring human approval before publication" --force
+          issue_number="$(gh issue list --state open --label content-draft --json number,title --jq ".[] | select(.title == \"$title\") | .number" | head -n 1)"
+          if [ -n "$issue_number" ]; then
+            gh issue edit "$issue_number" --body-file growth-content.md
+          else
+            gh issue create --title "$title" --label content-draft --body-file growth-content.md
+          fi
+      - name: Confirm publication boundary
+        run: |
+          echo 'Draft generation is complete. This workflow has no community, social, email, or release-publishing step.'

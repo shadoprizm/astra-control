@@ -1,0 +1,51 @@
+name: Ethical growth discovery
+
+on:
+  schedule:
+    - cron: '45 12 * * 0'
+  workflow_dispatch:
+    inputs:
+      create_issue:
+        description: Copy the report into a repository review issue
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: growth-discovery
+  cancel-in-progress: true
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Discover adjacent public projects
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/growth.py discover > growth-discovery.md
+          cat growth-discovery.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ethical-growth-discovery
+          path: growth-discovery.md
+          retention-days: 30
+          overwrite: true
+      - name: Create a review issue only after manual dispatch approval
+        if: github.event_name == 'workflow_dispatch' && inputs.create_issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh label create growth-research --color d4c5f9 --description "Public-project research; never an automated outreach list" --force
+          gh issue create --title "[Growth research] Adjacent projects $(date -u +%F)" --label growth-research --body-file growth-discovery.md
+      - name: Confirm no-contact boundary
+        run: |
+          echo 'Discovery is complete. No issue, pull request, direct message, email, form, or community submission was sent to any discovered project.'

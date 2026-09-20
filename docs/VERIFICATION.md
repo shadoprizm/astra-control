@@ -69,3 +69,12 @@ Public DNS/Access deployment and shared desktop runtime integration are not esta
 Two additional Node tests exercise authenticated action limits and a running public-mode HTTP server. Anonymous requests to the page, API, event stream, health check, assets, and robots file return 403 with no-store/noindex headers. Forged email/Tailscale headers and a forged JWT with localhost Host are rejected. Registration requests cannot bypass authentication. Total: 16 Node tests plus 4 Python tests.
 
 These checks do not prove that a particular Cloudflare account has an owner-only MFA policy. That policy, proxy-generated login headers, and a real owner sign-in must be verified at deployment.
+
+## v0.3 release reconciliation — 2026-09-20
+
+- The package and lockfile now identify the release candidate as `0.3.0`; the running sidebar and installed release manifest remain deployment-time checks and must identify the eventual exact commit.
+- TypeScript compilation, frontend JavaScript syntax, 54 Node tests, 13 Python tests, and `git diff --check` passed locally. The new approval lifecycle coverage proves that an invalidated request stays expired and that even a reused native request ID creates a distinct approval on a new runtime connection.
+- Expired approval copy now directs the operator to resume or inspect the task and have the agent request approval again. Expired IDs and uncertain writes are never replayed automatically.
+- The README and compatibility contract explicitly limit standalone Codex discovery to configured local or SSH runtime projections. ChatGPT conversations and Codex Cloud tasks are not captured by the standalone panel.
+- The demo was exercised in a real browser at 1,440×900 and 390×844 with no console warnings or errors. The two committed product screenshots were recaptured from the v0.3 candidate and contain only synthetic demo data.
+- Repository promotion, installer execution, authenticated live acceptance, rollback verification, and exact running release identity remain release-owner checks after the candidate commit exists.

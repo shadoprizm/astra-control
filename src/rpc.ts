@@ -25,7 +25,7 @@ export class Rpc extends EventEmitter {
     p.stderr.on('data',()=>{}); // Never forward runtime logs or secrets to the browser.
     const ended=()=>{if(this.proc!==p)return;this.ready=false;this.proc=undefined;for(const q of this.pending.values()){clearTimeout(q.timer);q.reject(new Error('Codex connection closed; delivery may be uncertain.'));}this.pending.clear();this.emit('disconnect');};
     p.on('error',ended);p.on('exit',ended);
-    try{await this.raw('initialize',{clientInfo:{name:'astra_control',title:'Astra Control',version:APP_VERSION},capabilities:{experimentalApi:true}},15000);this.write({method:'initialized',params:{}});this.ready=true;}
+    try{await this.raw('initialize',{clientInfo:{name:'threadhelm',title:'ThreadHelm',version:APP_VERSION},capabilities:{experimentalApi:true}},15000);this.write({method:'initialized',params:{}});this.ready=true;}
     catch(e){p.kill();throw e;}
   }
   write(m:any){if(!this.proc||this.proc.stdin.destroyed)throw new Error('Codex is offline');this.proc.stdin.write(JSON.stringify(m)+'\n');}
@@ -34,6 +34,6 @@ export class Rpc extends EventEmitter {
     return new Promise((resolve,reject)=>{const timer=setTimeout(()=>{this.pending.delete(id);reject(new Error(`${method} timed out; do not retry a write until its outcome is checked.`));},timeout);this.pending.set(id,{resolve,reject,timer});try{this.write({id,method,params});}catch(e){clearTimeout(timer);this.pending.delete(id);reject(e as Error);}});
   }
   async call(method:string,params:any,timeout=20000){await this.connect();return this.raw(method,params,timeout);}
-  respond(id:any,result:any,generation:string){if(generation!==this.generation||!this.ready)throw new Error('This request belongs to an expired connection. Open the task in Codex.');this.write({id,result});}
+  respond(id:any,result:any,generation:string){if(generation!==this.generation||!this.ready)throw new Error('This request belongs to an expired connection and cannot be reused. Resume the task and have the agent request approval again.');this.write({id,result});}
   close(){this.proc?.kill();}
 }

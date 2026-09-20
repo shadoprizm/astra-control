@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {checkoutAssessment,filterInboxGroups,groupInboxActions,projectsForHost,workspaceTasks} from '../public/workspace.js';
+import {checkoutAssessment,filterInboxGroups,groupInboxActions,projectsForHost,uiStateFingerprint,workspaceTasks} from '../public/workspace.js';
 
 test('running workspace total includes unwatched active tasks',()=>{
  const tasks=[
@@ -12,6 +12,14 @@ test('running workspace total includes unwatched active tasks',()=>{
  const summary=workspaceTasks(tasks,task=>task.offline?'offline':task.status);
  assert.deepEqual(summary.watched.map(task=>task.id),['watched-idle','offline-running']);
  assert.deepEqual(summary.running.map(task=>task.id),['unwatched-running-1','unwatched-running-2']);
+});
+
+test('UI state comparison ignores polling timestamps but detects visible changes',()=>{
+ const before={now:1,csrf:'one',hosts:[{id:'local',online:true,lastSeen:1}],tasks:[{key:'one',title:'Task',status:'active',observedAt:1,updatedAt:1}]};
+ const pollOnly={now:2,csrf:'two',hosts:[{id:'local',online:true,lastSeen:2}],tasks:[{key:'one',title:'Task',status:'active',observedAt:2,updatedAt:2}]};
+ assert.equal(uiStateFingerprint(before),uiStateFingerprint(pollOnly));
+ pollOnly.tasks[0].status='completed';
+ assert.notEqual(uiStateFingerprint(before),uiStateFingerprint(pollOnly));
 });
 
 test('project choices stay scoped to the selected machine and require a checkout',()=>{

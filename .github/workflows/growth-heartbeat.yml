@@ -1,0 +1,53 @@
+name: Growth heartbeat
+
+on:
+  schedule:
+    - cron: '0 12 * * *'
+  workflow_dispatch:
+    inputs:
+      include_metrics:
+        description: Include live GitHub repository and traffic metrics
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: growth-heartbeat
+  cancel-in-progress: true
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate campaign
+        run: python3 scripts/growth.py validate
+      - name: Generate heartbeat
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          metrics_flag="--with-metrics"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.include_metrics }}" != "true" ]; then
+            metrics_flag=""
+          fi
+          python3 scripts/growth.py heartbeat $metrics_flag > growth-heartbeat.md
+          cat growth-heartbeat.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Update the operational heartbeat issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TITLE: "[Growth] Daily heartbeat"
+        run: |
+          gh label create growth-ops --color 1d76db --description "Repository growth operations" --force
+          issue_number="$(gh issue list --state open --label growth-ops --json number,title --jq '.[] | select(.title == "[Growth] Daily heartbeat") | .number' | head -n 1)"
+          if [ -n "$issue_number" ]; then
+            gh issue edit "$issue_number" --body-file growth-heartbeat.md
+          else
+            gh issue create --title "$TITLE" --label growth-ops --body-file growth-heartbeat.md
+          fi

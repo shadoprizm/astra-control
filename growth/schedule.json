@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "phases": [
+    {
+      "id": "foundation",
+      "name": "Make the value obvious",
+      "start_day": 1,
+      "end_day": 14,
+      "outcome": "A stranger can understand the product and reach demo value in under five minutes."
+    },
+    {
+      "id": "design-partners",
+      "name": "Earn the first believers",
+      "start_day": 15,
+      "end_day": 35,
+      "outcome": "Fifteen qualified users have installed the product and at least five use it weekly."
+    },
+    {
+      "id": "repeatable-launches",
+      "name": "Launch one useful story at a time",
+      "start_day": 36,
+      "end_day": 63,
+      "outcome": "Every supported community has seen a tailored, evidence-backed demonstration."
+    },
+    {
+      "id": "v1-proof",
+      "name": "Turn proof into a durable release",
+      "start_day": 64,
+      "end_day": 90,
+      "outcome": "A polished v1 and user proof create a credible push to 1,000 stars."
+    }
+  ],
+  "events": [
+    { "id": "baseline", "day": 1, "owner": "maintainer", "kind": "measure", "automation": "metrics", "human_gate": false, "deliverable": "Record the baseline stars, forks, clones, visitors, installs, and activation proxy." },
+    { "id": "positioning", "day": 1, "owner": "maintainer", "kind": "product", "automation": "reminder", "human_gate": true, "deliverable": "Lock the one-sentence promise and searchable project name." },
+    { "id": "readme-conversion", "day": 3, "owner": "maintainer", "kind": "product", "automation": "reminder", "human_gate": true, "deliverable": "Ship the outcome-first README, real screenshots, and a 30–60 second demo." },
+    { "id": "demo-mode", "day": 5, "owner": "maintainer", "kind": "product", "automation": "reminder", "human_gate": true, "deliverable": "Ship sample-data demo mode and a five-minute quickstart." },
+    { "id": "release-candidate", "day": 7, "owner": "maintainer", "kind": "release", "automation": "content-draft", "human_gate": true, "deliverable": "Cut a tested release candidate and recruit five installation testers." },
+    { "id": "partner-cfp", "day": 8, "owner": "maintainer", "kind": "recruitment", "automation": "content-draft", "human_gate": true, "deliverable": "Publish the design-partner call through approved owned channels." },
+    { "id": "directory-pass-1", "day": 10, "owner": "maintainer", "kind": "distribution", "automation": "content-draft", "human_gate": true, "deliverable": "Submit to two relevant open-source directories after reviewing their rules." },
+    { "id": "install-office-hours-1", "day": 12, "owner": "maintainer", "kind": "recruitment", "automation": "reminder", "human_gate": true, "deliverable": "Hold the first public installation office hour for opted-in applicants." },
+    { "id": "checkpoint-100", "day": 14, "owner": "maintainer", "kind": "measure", "automation": "metrics", "human_gate": false, "deliverable": "Review conversion, activation, and the 100-star target; change the message if visitors do not activate." },
+    { "id": "show-hn-draft", "day": 16, "owner": "maintainer", "kind": "launch", "automation": "content-draft", "human_gate": true, "deliverable": "Prepare the Show HN story with a working demo and founder available for replies." },
+    { "id": "show-hn-launch", "day": 18, "owner": "maintainer", "kind": "launch", "automation": "reminder", "human_gate": true, "deliverable": "Human reviews and submits Show HN; answer every substantive comment." },
+    { "id": "interview-sprint-1", "day": 20, "owner": "maintainer", "kind": "recruitment", "automation": "reminder", "human_gate": true, "deliverable": "Complete five opted-in interviews and publish the anonymized learning summary." },
+    { "id": "codex-story", "day": 22, "owner": "maintainer", "kind": "launch", "automation": "content-draft", "human_gate": true, "deliverable": "Publish a Codex-specific workflow demonstration in an approved channel." },
+    { "id": "first-contributor-tasks", "day": 24, "owner": "maintainer", "kind": "community", "automation": "reminder", "human_gate": true, "deliverable": "Open three scoped, verified contributor tasks with maintainer context." },
+    { "id": "install-office-hours-2", "day": 26, "owner": "maintainer", "kind": "recruitment", "automation": "reminder", "human_gate": true, "deliverable": "Run installation office hours and personally unblock opted-in users." },
+    { "id": "technical-post-1", "day": 29, "owner": "maintainer", "kind": "content", "automation": "content-draft", "human_gate": true, "deliverable": "Publish the observation-first architecture article." },
+    { "id": "partner-checkpoint", "day": 32, "owner": "maintainer", "kind": "measure", "automation": "metrics", "human_gate": false, "deliverable": "Review applications, qualified partners, installs, weekly use, and response time." },
+    { "id": "checkpoint-300", "day": 35, "owner": "maintainer", "kind": "measure", "automation": "metrics", "human_gate": false, "deliverable": "Review the 300-star target and select the strongest validated use case." },
+    { "id": "openclaw-story", "day": 38, "owner": "maintainer", "kind": "launch", "automation": "content-draft", "human_gate": true, "deliverable": "Publish a read-only OpenClaw fleet visibility demonstration in an approved channel." },
+    { "id": "release-2", "day": 41, "owner": "maintainer", "kind": "release", "automation": "content-draft", "human_gate": true, "deliverable": "Release the highest-impact design-partner fixes with before/after evidence." },
+    { "id": "selfhosted-story", "day": 44, "owner": "maintainer", "kind": "launch", "automation": "content-draft", "human_gate": true, "deliverable": "Publish the self-hosting, privacy, and outbound-connectivity story." },
+    { "id": "case-study-1", "day": 47, "owner": "maintainer", "kind": "proof", "automation": "content-draft", "human_gate": true, "deliverable": "Publish the first approved design-partner case study with a measurable outcome." },
+    { "id": "directory-pass-2", "day": 50, "owner": "maintainer", "kind": "distribution", "automation": "content-draft", "human_gate": true, "deliverable": "Submit to two additional curated directories using a channel-specific description." },
+    { "id": "integration-demo", "day": 53, "owner": "maintainer", "kind": "launch", "automation": "content-draft", "human_gate": true, "deliverable": "Demonstrate the most-requested new integration end to end." },
+    { "id": "maintainer-roundtable", "day": 56, "owner": "maintainer", "kind": "community", "automation": "reminder", "human_gate": true, "deliverable": "Hold an opt-in roundtable with adjacent open-source maintainers; publish shared lessons, not pitches." },
+    { "id": "technical-post-2", "day": 59, "owner": "maintainer", "kind": "content", "automation": "content-draft", "human_gate": true, "deliverable": "Publish the durable attention-routing and capability-safety article." },
+    { "id": "checkpoint-600", "day": 63, "owner": "maintainer", "kind": "measure", "automation": "metrics", "human_gate": false, "deliverable": "Review the 600-star target, weekly active installs, retention, and support load." },
+    { "id": "v1-scope-lock", "day": 65, "owner": "maintainer", "kind": "release", "automation": "reminder", "human_gate": true, "deliverable": "Lock v1 to proven workflows and publish the compatibility matrix." },
+    { "id": "case-study-2", "day": 68, "owner": "maintainer", "kind": "proof", "automation": "content-draft", "human_gate": true, "deliverable": "Publish a second approved case study from a different user profile." },
+    { "id": "v1-rc", "day": 72, "owner": "maintainer", "kind": "release", "automation": "content-draft", "human_gate": true, "deliverable": "Publish the v1 release candidate and ask existing users to run the verification checklist." },
+    { "id": "demo-refresh", "day": 75, "owner": "maintainer", "kind": "product", "automation": "reminder", "human_gate": true, "deliverable": "Refresh the demo video with v1 workflows and real, approved proof points." },
+    { "id": "v1-launch-draft", "day": 78, "owner": "maintainer", "kind": "launch", "automation": "content-draft", "human_gate": true, "deliverable": "Prepare tailored v1 launch drafts and a maintainer reply rota." },
+    { "id": "v1-launch", "day": 81, "owner": "maintainer", "kind": "launch", "automation": "reminder", "human_gate": true, "deliverable": "Human reviews and publishes v1 through owned and approved community channels." },
+    { "id": "user-demo-week", "day": 84, "owner": "maintainer", "kind": "proof", "automation": "content-draft", "human_gate": true, "deliverable": "Amplify opt-in user demonstrations with explicit attribution and permission." },
+    { "id": "closing-story", "day": 87, "owner": "maintainer", "kind": "content", "automation": "content-draft", "human_gate": true, "deliverable": "Publish what changed after 90 days, including misses and product lessons." },
+    { "id": "checkpoint-1000", "day": 90, "owner": "maintainer", "kind": "measure", "automation": "metrics", "human_gate": false, "deliverable": "Review the 1,000-star target and choose the next goal from retention and user outcomes." }
+  ]
+}

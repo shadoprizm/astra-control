@@ -110,6 +110,16 @@ export function compactConversation(messages){
  return compact;
 }
 
+/** Keep a reader's place across a live panel render, while following new content at the bottom. */
+export function scrollTopAfterRender(previous,nextScrollHeight,stickThreshold=48){
+ const clientHeight=Math.max(0,Number(previous?.clientHeight)||0);
+ const previousHeight=Math.max(clientHeight,Number(previous?.scrollHeight)||0);
+ const previousTop=Math.max(0,Number(previous?.scrollTop)||0);
+ const distanceFromBottom=Math.max(0,previousHeight-clientHeight-previousTop);
+ const nextMaximum=Math.max(0,(Number(nextScrollHeight)||0)-clientHeight);
+ return distanceFromBottom<=stickThreshold?nextMaximum:Math.min(previousTop,nextMaximum);
+}
+
 function verificationLine(value){
  const lines=signalText(value).split('\n').map(line=>line.replace(/^[-+*\d.)\s]+/,'').trim()).filter(Boolean);
  return lines.find(line=>/\b(?:tests?|checks?|build|lint|typecheck|pytest|vitest|jest|npm test)\b/i.test(line)&&/\b(?:pass(?:ed|ing)?|fail(?:ed|ing)?|green|successful|complete|not run|not tested|pending)\b/i.test(line))?.slice(0,220)||null;

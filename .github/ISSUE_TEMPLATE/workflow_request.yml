@@ -1,0 +1,40 @@
+name: Workflow request
+description: Propose an improvement around a concrete multi-agent supervision workflow.
+title: "[Workflow]: "
+body:
+  - type: textarea
+    id: situation
+    attributes:
+      label: Current situation
+      description: Which sources and machines are involved, and what is difficult today?
+    validations:
+      required: true
+  - type: textarea
+    id: signal
+    attributes:
+      label: Signal that matters
+      description: What should ThreadHelm observe, and how can the source prove it?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired owner outcome
+      description: What should become faster, safer, or harder to miss?
+    validations:
+      required: true
+  - type: textarea
+    id: failure
+    attributes:
+      label: Failure and ambiguity
+      description: What could be stale, uncertain, duplicated, unsafe, or wrongly inferred?
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I used generic or synthetic examples and removed private work data.
+          required: true
+

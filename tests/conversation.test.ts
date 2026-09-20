@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {compactConversation,conversationSignal,plainPreview,renderRichText,reviewSummary} from '../public/conversation.js';
+import {compactConversation,conversationSignal,plainPreview,renderRichText,reviewSummary,scrollTopAfterRender} from '../public/conversation.js';
 
 const task=(status='idle',text='All requested work is done.')=>({
  key:'local:task-1',status,latest:{phase:'final_answer',text}
@@ -57,4 +57,10 @@ test('repeated technical projection rows collapse without hiding their frequency
 test('review summary prioritizes the final response and observed evidence',()=>{
  const summary=reviewSummary([{id:'f',role:'assistant',phase:'final_answer',text:'Implementation complete. All 12 tests passed.'}],{available:true,branch:'codex/work',status:' M app.js\n?? test.js'});
  assert.equal(summary.final.id,'f');assert.equal(summary.changedFiles,2);assert.equal(summary.repository,'Local changes');assert.match(summary.verification,/tests passed/i);
+});
+
+test('live conversation renders preserve the reader position and follow the bottom',()=>{
+ assert.equal(scrollTopAfterRender({scrollTop:420,scrollHeight:1600,clientHeight:600},1900),420);
+ assert.equal(scrollTopAfterRender({scrollTop:995,scrollHeight:1600,clientHeight:600},1900),1300);
+ assert.equal(scrollTopAfterRender({scrollTop:900,scrollHeight:1600,clientHeight:600},800),200);
 });

@@ -1,0 +1,29 @@
+name: Growth configuration
+
+on:
+  push:
+    paths:
+      - 'growth/**'
+      - 'scripts/growth.py'
+      - '.github/workflows/growth-*.yml'
+      - '.github/ISSUE_TEMPLATE/**'
+  pull_request:
+    paths:
+      - 'growth/**'
+      - 'scripts/growth.py'
+      - '.github/workflows/growth-*.yml'
+      - '.github/ISSUE_TEMPLATE/**'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 scripts/growth.py validate
+      - run: python3 -m unittest tests.growth_test

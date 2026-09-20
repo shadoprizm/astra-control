@@ -4,9 +4,9 @@ Run one active hub for a deployment. State is stored in `data/control.sqlite`, a
 
 ## macOS
 
-Create `data/config.json`, commit the release, then run `python3 scripts/install-local.py`. The installer refuses a dirty source tree, installs exact dependencies, runs all tests and the build before stopping the service, copies a checksum-verified artifact to `~/.local/share/astra-control`, preserves existing configuration/state, backs up code/data and the LaunchAgent, writes `release.json`, and installs the per-user `io.astra.control` service. Node, npm, and Git must be on PATH. The machine must remain awake.
+Create `data/config.json`, commit the release, then run `python3 scripts/install-local.py`. The installer refuses a dirty source tree, installs exact dependencies, runs all tests and the build before stopping the service, copies a checksum-verified artifact to `~/.local/share/threadhelm`, preserves existing configuration/state, backs up code/data and the LaunchAgent, writes `release.json`, and installs the per-user `io.threadhelm.control` service. An existing `~/.local/share/astra-control` deployment is migrated into the new location and its former service definition is preserved in the printed backup. Node, npm, and Git must be on PATH. The machine must remain awake.
 
-Stop with `launchctl bootout gui/$(id -u)/io.astra.control`. Restore deployment files and the LaunchAgent from the printed backup location to roll back. Keep `data/` to preserve the inbox.
+Stop with `launchctl bootout gui/$(id -u)/io.threadhelm.control`. Restore deployment files and the LaunchAgent from the printed backup location to roll back. Keep `data/` to preserve the inbox.
 
 ## Linux
 
@@ -14,7 +14,7 @@ See docs/HOSTING.md. Install a user service with `python3 scripts/install-linux.
 
 ## Updates and migration
 
-Finish or pause dashboard-managed work before restarting or moving the hub: the current version owns App Server subprocesses, so stopping it closes its runtime connections. Pending permission IDs expire after restart. Inspect tasks before resuming; never replay uncertain actions automatically.
+Finish or pause dashboard-managed work before restarting or moving the hub: the current version owns App Server subprocesses, so stopping it closes its runtime connections. Pending permission IDs become invalid after restart and must be requested again by the agent after the task resumes. Never replay an expired approval or an uncertain action automatically.
 
 Back up SQLite with its backup API or after stopping the hub; copying only a live `.sqlite` file can omit WAL data. Back up private configuration and connector credential/device files separately, preserving `0600` permissions. Preserve host and source IDs when moving the hub so task/source keys remain stable. Mark transferred managed sessions as unowned until their state is reconciled. Do not run two hubs against the same database.
 

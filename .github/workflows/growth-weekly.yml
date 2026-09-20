@@ -1,0 +1,40 @@
+name: Weekly growth brief
+
+on:
+  schedule:
+    - cron: '15 12 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: weekly-growth-brief
+  cancel-in-progress: false
+
+jobs:
+  brief:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Generate weekly brief
+        run: |
+          python3 scripts/growth.py weekly > weekly-growth.md
+          cat weekly-growth.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Open this week's operating issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          title="[Growth] Weekly brief $(date -u +%G-W%V)"
+          gh label create growth-ops --color 1d76db --description "Repository growth operations" --force
+          issue_number="$(gh issue list --state open --label growth-ops --json number,title --jq ".[] | select(.title == \"$title\") | .number" | head -n 1)"
+          if [ -n "$issue_number" ]; then
+            gh issue edit "$issue_number" --body-file weekly-growth.md
+          else
+            gh issue create --title "$title" --label growth-ops --body-file weekly-growth.md
+          fi

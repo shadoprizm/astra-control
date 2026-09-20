@@ -6,8 +6,10 @@ import hashlib, json, os, platform, shutil, subprocess, sys, time
 if platform.system() != 'Linux':
     raise SystemExit('This installer requires Linux')
 source = Path(__file__).resolve().parents[1]
-target = Path.home() / '.local/share/astra-control'
-unit = Path.home() / '.config/systemd/user/astra-control.service'
+target = Path.home() / '.local/share/threadhelm'
+legacy_target = Path.home() / '.local/share/astra-control'
+unit = Path.home() / '.config/systemd/user/threadhelm.service'
+legacy_unit = Path.home() / '.config/systemd/user/astra-control.service'
 def executable(name):
     found = shutil.which(name)
     if found: return found
@@ -21,7 +23,7 @@ if not node or not npm or not git:
     raise SystemExit('Node, npm, and Git are required')
 tool_env = os.environ.copy()
 tool_env['PATH'] = os.pathsep.join(dict.fromkeys([str(Path(node).parent), str(Path(npm).parent), tool_env.get('PATH', '')]))
-if not (target / 'data/config.json').exists() and not (source / 'data/config.json').exists():
+if not (target / 'data/config.json').exists() and not (legacy_target / 'data/config.json').exists() and not (source / 'data/config.json').exists():
     raise SystemExit('Create data/config.json before installation')
 dirty = subprocess.run([git, 'status', '--porcelain', '--untracked-files=all'], cwd=source, check=True, capture_output=True, text=True).stdout.strip()
 if dirty:
@@ -50,15 +52,19 @@ release = {
 }
 backup = target / 'backups' / time.strftime('%Y%m%d-%H%M%S')
 backup.mkdir(parents=True, mode=0o700)
+subprocess.run(['systemctl', '--user', 'stop', 'threadhelm.service'], capture_output=True)
 subprocess.run(['systemctl', '--user', 'stop', 'astra-control.service'], capture_output=True)
 for name in ['dist', 'public', 'connector', 'package.json', 'package-lock.json', 'release.json']:
     p = target / name
     if p.is_dir(): shutil.copytree(p, backup / name)
     elif p.exists(): shutil.copy2(p, backup / name)
 if unit.exists(): shutil.copy2(unit, backup / unit.name)
+if legacy_unit.exists(): shutil.copy2(legacy_unit, backup / legacy_unit.name)
 for name in ['config.json', 'control.sqlite']:
     p = target / 'data' / name
     if p.exists(): shutil.copy2(p, backup / name)
+    legacy_path = legacy_target / 'data' / name
+    if legacy_path.exists(): shutil.copy2(legacy_path, backup / f'legacy-{name}')
 config_path = target / 'data/config.json'
 if config_path.exists():
     config = json.loads(config_path.read_text())
@@ -85,22 +91,30 @@ if artifact_digest(target) != release['artifactSha256']:
 (target / 'release.json').write_text(json.dumps(release, indent=2) + '\n')
 (target / 'data').mkdir(mode=0o700, exist_ok=True)
 if not (target / 'data/config.json').exists():
-    shutil.copy2(source / 'data/config.json', target / 'data/config.json')
+    config_source = legacy_target / 'data/config.json' if (legacy_target / 'data/config.json').exists() else source / 'data/config.json'
+    shutil.copy2(config_source, target / 'data/config.json')
 (target / 'data/config.json').chmod(0o600)
+if not (target / 'data/control.sqlite').exists() and (legacy_target / 'data/control.sqlite').exists():
+    shutil.copy2(legacy_target / 'data/control.sqlite', target / 'data/control.sqlite')
+    (target / 'data/control.sqlite').chmod(0o600)
 subprocess.run([npm, 'ci', '--omit=dev', '--ignore-scripts'], cwd=target, check=True, env=tool_env)
 unit.parent.mkdir(parents=True, exist_ok=True)
 def quote(value):
     return '"' + str(value).replace('\\', '\\\\').replace('"', '\\"').replace('%', '%%') + '"'
 unit.write_text('\n'.join([
-    '[Unit]', 'Description=Astra Control coordination dashboard',
+    '[Unit]', 'Description=ThreadHelm coordination dashboard',
     'After=network-online.target', 'Wants=network-online.target', '', '[Service]',
-    'Type=simple', 'WorkingDirectory=%h/.local/share/astra-control',
+    'Type=simple', 'WorkingDirectory=%h/.local/share/threadhelm',
     f'ExecStart={quote(Path(node).resolve())} {quote(target / "dist/server.js")}',
     f'Environment="PATH={Path.home()}/.local/bin:/usr/local/bin:/usr/bin:/bin"',
     'Restart=on-failure', 'RestartSec=5', 'UMask=0077', '', '[Install]',
     'WantedBy=default.target', ''
 ]))
 subprocess.run(['systemctl', '--user', 'daemon-reload'], check=True)
-subprocess.run(['systemctl', '--user', 'enable', '--now', 'astra-control.service'], check=True)
-subprocess.run(['systemctl', '--user', 'is-active', '--quiet', 'astra-control.service'], check=True)
-print(f'Installed Astra Control {release["version"]} ({commit[:12]}) at {target}. Backup: {backup}.')
+subprocess.run(['systemctl', '--user', 'enable', '--now', 'threadhelm.service'], check=True)
+subprocess.run(['systemctl', '--user', 'is-active', '--quiet', 'threadhelm.service'], check=True)
+if legacy_unit.exists():
+    subprocess.run(['systemctl', '--user', 'disable', 'astra-control.service'], capture_output=True)
+    legacy_unit.unlink()
+    subprocess.run(['systemctl', '--user', 'daemon-reload'], check=True)
+print(f'Installed ThreadHelm {release["version"]} ({commit[:12]}) at {target}. Backup: {backup}.')

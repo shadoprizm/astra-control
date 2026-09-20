@@ -1,0 +1,42 @@
+name: Contributor proposal
+description: Propose a small, testable contribution before investing in a large change.
+title: "[Contribution] "
+labels:
+  - contribution-proposal
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for offering to contribute. Start with the user-visible outcome and a bounded first slice. A maintainer will confirm fit and point to source-specific safety constraints before implementation.
+  - type: textarea
+    id: problem
+    attributes:
+      label: User problem
+      description: What observable workflow fails today, and for whom?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Observable outcome
+      description: What would a user be able to see or do after this change?
+    validations:
+      required: true
+  - type: textarea
+    id: first_slice
+    attributes:
+      label: Smallest testable slice
+      description: Propose a change that can be reviewed independently, including tests or fixtures.
+    validations:
+      required: true
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Safety and scope
+      options:
+        - label: I read CONTRIBUTING.md and will use only synthetic fixtures.
+          required: true
+        - label: I will not edit another application's database or claim unsupported capabilities.
+          required: true
+        - label: I will wait for maintainer confirmation before a large implementation.
+          required: true

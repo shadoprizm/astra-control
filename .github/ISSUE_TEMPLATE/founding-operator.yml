@@ -1,0 +1,94 @@
+name: Founding Operator application
+description: Apply to test ThreadHelm with hands-on installation help and a direct feedback loop.
+title: "[Founding Operator] "
+labels:
+  - design-partner
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for volunteering to test an early self-hosted project. This form is an explicit opt-in to receive replies on this GitHub issue about installation and product feedback. It is **not** consent to email, promotion, attribution, screenshots, quotes, or a public case study. Never paste credentials, private hostnames, repository names, client data, or real task transcripts.
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safe testing
+      options:
+        - label: I can begin with disposable tasks and repositories I control.
+          required: true
+        - label: I understand this is early software and I will review the security and hosting guidance before connecting ongoing work.
+          required: true
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: How often do you supervise agent work?
+      options:
+        - Daily
+        - Several times per week
+        - Weekly
+        - Less often
+    validations:
+      required: true
+  - type: checkboxes
+    id: sources
+    attributes:
+      label: Sources you actively use
+      description: Select only sources you currently use at least weekly.
+      options:
+        - label: Codex
+        - label: Hermes
+        - label: OpenClaw
+        - label: Open WebUI
+        - label: Claude Code
+        - label: Another source described below
+  - type: dropdown
+    id: machines
+    attributes:
+      label: How many machines are involved?
+      options:
+        - One
+        - Two
+        - Three to five
+        - More than five
+    validations:
+      required: true
+  - type: textarea
+    id: workflow
+    attributes:
+      label: The workflow that currently breaks down
+      description: Describe the recurring operational problem and its impact without including sensitive content.
+      placeholder: I check three machines to find approvals, and I miss completed tasks that need review...
+    validations:
+      required: true
+  - type: textarea
+    id: setup
+    attributes:
+      label: Safe environment summary
+      description: Operating systems and source names/versions are useful. Do not include hostnames, IPs, credentials, private repository names, or transcripts.
+      placeholder: macOS 15 laptop, Ubuntu 24.04 server, current Codex desktop...
+    validations:
+      required: true
+  - type: checkboxes
+    id: feedback
+    attributes:
+      label: Feedback loop
+      options:
+        - label: I can share two short rounds of written feedback over four weeks.
+          required: true
+        - label: I am comfortable keeping feedback on this public issue after removing sensitive details.
+          required: true
+  - type: dropdown
+    id: attribution
+    attributes:
+      label: Public attribution preference
+      description: This is only a preference. Any quote, screenshot, or case study still requires separate approval of the final draft.
+      options:
+        - Keep my participation anonymous
+        - Ask me later about anonymous findings
+        - Ask me later about public attribution
+    validations:
+      required: true
+  - type: textarea
+    id: other
+    attributes:
+      label: Anything else?
+      description: Optional. You may include a public GitHub handle, but do not post private contact information.
