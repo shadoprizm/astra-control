@@ -13,6 +13,8 @@ Every recommendation must include evidence, risk, and a small set of relevant ac
 
 ![Astra Control evolution from a dense activity feed through the Release 0 safety foundation to a brief, decision-oriented operations console](assets/astra-control-evolution.png)
 
+The [generation prompt](assets/astra-control-evolution.prompt.md) is retained with the asset for provenance and future revisions.
+
 ### Text equivalent of the infographic
 
 The visual moves from left to right. Today, the owner sees a dense activity feed and has to determine what is running, what needs a decision, what Astra recommends, and what happens next. Release 0 places six controls between observation and action: proposal-only AI, deterministic authority, evidence-locked actions, an actor audit trail, database backups with tested rollback, and protocol safety gates. The target interface has four stable areas—Now running, Decisions for you, Recommendations, and Next steps—with quick actions such as Approve, Send, Move model, Archive, and Keep. Model routing can consider Codex, Claude, GLM, MiniMax, and later Grok, while local-only work stays local. The intended value is faster decisions, fewer missed decisions, lower cognitive load, better model fit, and more resilient work. The corresponding controls address prompt injection, stale state, excess authority, quota collisions, privacy and provider terms, and work lost during hub restarts. The roadmap is Release 0 hardening, Release 1A briefing, Release 1B dispatcher and workers, Release 2 provider routing, Release 3 governed autonomy, and Release 4 shadow gating.
