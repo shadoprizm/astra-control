@@ -12,7 +12,21 @@ Commit or stash every source change, then run `python3 scripts/install-linux.py`
 
 ## External source connectors
 
-Every configured network source endpoint must resolve to loopback; the server refuses non-loopback Hermes, OpenClaw, Open WebUI, and Runtime URLs. Put each secret in its own owner-readable `0600` file outside the repository. The Claude Code adapter has no credential or network endpoint: it reads only the absolute `projectsDir` and optional `sessionsDir` on the hub machine, so use it only for Claude activity stored on that machine. The example configuration shows the six permitted Hermes profiles; the adapter also enforces that allowlist and will not ingest the excluded family profiles.
+Every configured network source endpoint must resolve to loopback; the server refuses non-loopback Hermes, OpenClaw, Open WebUI, and Runtime URLs. Put each secret in its own owner-readable `0600` file outside the repository. The Claude Code adapter has no provider credential. It either reads absolute `projectsDir` and optional `sessionsDir` paths on the hub, or uses a pre-existing noninteractive SSH connection to query a loopback-only ThreadHelm instance on the workstation that owns those files:
+
+```json
+{
+  "id": "claude-workstation",
+  "name": "Claude Code",
+  "adapter": "claude",
+  "hostId": "workstation",
+  "bridge": {"ssh": "workstation", "baseUrl": "http://127.0.0.1:4318"},
+  "maxSessions": 500,
+  "locality": {"providers": {"anthropic": "cloud"}}
+}
+```
+
+The bridge invokes only bounded read endpoints over SSH, remaps the upstream source identity to the hub source, and never exposes the workstation endpoint to the network. The workstation service must already have its local Claude source configured and remain available. The example configuration shows the permitted Hermes profiles; the adapter also enforces that allowlist and will not ingest excluded family profiles.
 
 Locality is accepted only from source-reported fields, exact model IDs found in the local Runtime catalog, or explicit `locality.providers`, `locality.models`, and `locality.profiles` configuration. Keep aliases such as `Astra Smart Router` and Open WebUI route names unmapped unless the source reports their resolved route.
 
@@ -65,7 +79,7 @@ Tailscale Serve remains supported with `publicOrigin` and `allowedLogin`. Its id
 
 ## Current status
 
-The JWT guard has automated signed-token tests, and the reference production installation has passed owner sign-in, anonymous redirect, off-network reachability, exact release identity, and live inventory acceptance. Every new installation must repeat those checks; the code alone does not establish a secure deployed route. Shared-runtime desktop integration, remote Claude capture, and Claude session controls are separate roadmap milestones.
+The JWT guard has automated signed-token tests, and the reference production installation has passed owner sign-in, anonymous redirect, off-network reachability, exact release identity, and live inventory acceptance. Every new installation must repeat those checks; the code alone does not establish a secure deployed route. Shared-runtime desktop integration and Claude session controls remain separate roadmap milestones.
 
 ## Search exclusion
 

@@ -41,7 +41,7 @@ The coordinator is on-demand rather than autonomous background traffic. It uses 
 | Source | Discover existing work | Bounded detail | Actions from ThreadHelm |
 | --- | :---: | :---: | --- |
 | Codex | Yes, from configured local or SSH runtimes | Yes | Create, resume/send, steer, interrupt, answer supported requests, watch, and archive—subject to session ownership |
-| Claude Code | Yes, from local activity files | Yes | Observation only; waiting sessions can enter the inbox |
+| Claude Code | Yes, from local activity files or an SSH-connected ThreadHelm workstation | Yes | Observation only; waiting sessions can enter the inbox |
 | Hermes | Yes | Yes | Observation only; optional deep link |
 | OpenClaw | Yes | Yes | Observation only; approvals and failures can enter the inbox, but are handled in OpenClaw |
 | Open WebUI | Yes | Yes | Observation only; optional deep link |
@@ -79,7 +79,7 @@ npm start
 Before starting, edit `data/config.json`:
 
 1. Replace the example host paths and SSH aliases with your own.
-2. Remove unavailable entries from `sources`. Configure loopback endpoint and `0600` credential files for network sources; configure absolute owner-local activity paths for Claude Code.
+2. Remove unavailable entries from `sources`. Configure loopback endpoint and `0600` credential files for network sources; configure absolute owner-local activity paths for Claude Code, or its read-only SSH bridge when the hub runs on another machine.
 3. Remove `runtime` if you do not run a compatible local model broker.
 
 Open `http://localhost:4318`. The service binds to loopback by default.
@@ -91,7 +91,7 @@ For a durable install, use `python3 scripts/install-local.py` on macOS or `pytho
 - Source adapters fail independently; one incompatible source does not take down the workspace.
 - Work is correlated only by an exact propagated identifier. Similar titles, text, or timestamps never merge conversations.
 - SQLite contains normalized metadata and at most a 4,000-character latest excerpt. Detail is fetched on demand and bounded to 30 entries.
-- Credential files must be owner-only (`0600`), network source endpoints must be loopback, Claude activity paths must be absolute and owner-local, and secrets are stripped from Runtime payloads and errors.
+- Credential files must be owner-only (`0600`), network source endpoints must be loopback, Claude activity paths must be absolute and owner-local, SSH bridges may call only a loopback ThreadHelm endpoint on the workstation, and secrets are stripped from Runtime payloads and errors.
 - Command delivery is idempotent. Uncertain delivery remains visible for review and is never retried automatically.
 - New Git work uses a sibling `codex/*` worktree by default. Running in an occupied checkout requires an explicit override.
 - Public access requires an authenticated reverse proxy plus application-side identity verification. Never expose the bare dashboard or an agent runtime to the Internet.

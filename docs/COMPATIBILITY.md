@@ -50,7 +50,7 @@ New Git tasks use a sibling worktree and a new `codex/*` branch by default. This
 | Source | Status basis | Default refresh/freshness behavior |
 | --- | --- | --- |
 | Codex | Turn state plus advisory writer lock | Host snapshot cycle; disconnected hosts report offline without claiming the agent stopped |
-| Claude Code | Live session-state file tied to a running process; otherwise transcript history | Local scan every 12 seconds; 45-second freshness window; unchanged transcript summaries are cached |
+| Claude Code | Live session-state file tied to a running process; otherwise transcript history | Local scan or bounded read-only SSH bridge every 12 seconds; 45-second freshness window; unchanged local transcript summaries are cached |
 | Hermes | Source activity flag | Full polling every 12 seconds; 180-second freshness window for large paginated inventories |
 | OpenClaw | Protocol-v4 session events and source-reported active run IDs | Event subscription plus reconciliation at least every 60 seconds; 90-second freshness window |
 | Open WebUI | Owner chat inventory and unfinished-generation flag | Polling every 12 seconds; 45-second freshness window |
@@ -64,7 +64,7 @@ Work from different sources is merged only when both carry the same exact propag
 - Latest excerpts are limited to 4,000 characters.
 - Detail is fetched on demand and limited to 30 entries, 12,000 characters per entry, and 180,000 characters total.
 - Full transcripts remain in the source system.
-- Credentials are read from owner-only files and are not persisted to ThreadHelm’s SQLite database or returned to the browser. Claude Code uses no credential; its configured activity directories remain source-owned and are never modified.
+- Credentials are read from owner-only files and are not persisted to ThreadHelm’s SQLite database or returned to the browser. Claude Code uses no provider credential; its configured activity directories remain source-owned and are never modified. A remote hub may reuse an existing noninteractive SSH trust path to query only the workstation's bounded ThreadHelm read endpoints.
 - Runtime inventory excludes prompts, responses, and raw completion traffic.
 - Locality is `unknown` unless a source reports it, an exact model is present in local Runtime inventory, or configuration maps an exact provider, model, or profile.
 

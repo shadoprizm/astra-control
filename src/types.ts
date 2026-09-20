@@ -21,7 +21,13 @@ export interface WorkItem {
 export interface SourceHealth {id:string;adapter:AdapterName;name:string;hostId:string;online:boolean;stale:boolean;lastSeen:number;error:string;version?:string;activeCount:number;itemCount:number;}
 interface BaseSourceConfig {id:string;name?:string;hostId:string;baseUrl:string;deepLinkBase?:string;tokenFile:string;enabled?:boolean;locality?:{providers?:Record<string,Locality>;models?:Record<string,Locality>;profiles?:Record<string,Locality>;};}
 interface LocalSourceConfig {id:string;name?:string;hostId:string;enabled?:boolean;locality?:{providers?:Record<string,Locality>;models?:Record<string,Locality>;profiles?:Record<string,Locality>;};}
-export interface ClaudeSourceConfig extends LocalSourceConfig {adapter:'claude';projectsDir:string;sessionsDir?:string;maxSessions?:number;}
+export interface ClaudeSourceConfig extends LocalSourceConfig {
+ adapter:'claude';
+ projectsDir?:string;
+ sessionsDir?:string;
+ maxSessions?:number;
+ bridge?:{ssh:string;baseUrl?:string;};
+}
 export interface HermesSourceConfig extends BaseSourceConfig {adapter:'hermes';profiles:string[];}
 export interface OpenWebUISourceConfig extends BaseSourceConfig {adapter:'openwebui';}
 export interface OpenClawSourceConfig extends BaseSourceConfig {adapter:'openclaw';deviceFile:string;configuredAgentsOnly?:boolean;reconcileSeconds?:number;}

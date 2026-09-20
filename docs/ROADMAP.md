@@ -37,6 +37,7 @@ Success means a user can act on a shared live session without switching windows,
 - [x] Extract a provider contract for inventory, bounded detail/events, health, model catalog, and capability reporting.
 - [ ] Extend the contract with source-specific create/resume, send/steer, interrupt, and request controls after observation proves stable.
 - [x] Add read-only Claude Code local activity capture with bounded detail and live waiting-state observation.
+- [x] Project Claude Code activity from an SSH-connected workstation into a remote hub without exposing the workstation service.
 - [ ] Replace or extend the version-sensitive Claude activity projection with a documented control/event surface when one is available.
 - [ ] Normalize status and inbox events while retaining provider-native request schemas and restrictions.
 - [ ] Pair outbound machine connectors so workstations do not need inbound public ports.
