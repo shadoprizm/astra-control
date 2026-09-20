@@ -6,6 +6,8 @@ One self-hosted workspace for supervising agent tasks and AI conversations acros
 
 Project authority will inherit owner-set, versioned defaults from the [per-project objective template](PROJECT_OBJECTIVE_TEMPLATE.md). Task prose may narrow those defaults but cannot grant itself a new action class, filesystem root, provider, network destination, or funding limit.
 
+The staged path from the current activity feed to the decision-oriented Astra experience, including release gates, provider order, value, and risks, is defined in the [Astra Control proposal](ASTRA_CONTROL_PROPOSAL.md).
+
 ## 0.1 — Open-source foundation
 
 - [x] Multi-machine discovery, watched tasks, durable inbox, coordinator, and managed Codex actions.

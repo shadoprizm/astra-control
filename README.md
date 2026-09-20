@@ -160,6 +160,7 @@ Start with an issue before a large change. Integration requests should identify 
 
 - [Compatibility](docs/COMPATIBILITY.md) — exact source and capability support
 - [Roadmap](docs/ROADMAP.md) — delivered and planned milestones
+- [Astra Control proposal](docs/ASTRA_CONTROL_PROPOSAL.md) — decision-oriented experience, governed quick actions, risks, and staged delivery plan
 - [Architecture](docs/ARCHITECTURE.md) — data model, adapters, controls, and coordination rules
 - [Hosting](docs/HOSTING.md) — server installation and authenticated browser access
 - [Operations](docs/OPERATIONS.md) — backup, migration, recovery, and updates
