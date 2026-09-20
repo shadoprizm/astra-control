@@ -264,6 +264,21 @@ const server = createServer(
           engine.emit("change");
           return json(res, 200, { ok: true, resolved: ids.length });
         }
+        if (path === "/api/briefing/feedback") {
+          const rating = text(b.rating, "feedback rating", 20);
+          if (!["useful", "wrong", "stale"].includes(rating))
+            throw new Error("Invalid feedback rating");
+          return json(
+            res,
+            200,
+            engine.rateRecommendation(
+              text(b.recommendationId, "recommendation", 200),
+              text(b.evidenceRevision, "evidence revision", 200),
+              optionalText(b.taskKey, "task", 300),
+              rating as "useful" | "wrong" | "stale",
+            ),
+          );
+        }
         if (path === "/api/approval")
           return json(res, 200, engine.approval(text(b.id, "action"), b));
         if (path === "/api/send")

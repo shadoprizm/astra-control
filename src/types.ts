@@ -120,6 +120,46 @@ export interface WorkItem {
   turnStatus?: string;
   controlAvailable?: boolean;
   controlReason?: string;
+  briefing?: TaskBriefing;
+}
+export type BriefingEntryKind = "current" | "decision" | "recommendation" | "next";
+export type BriefingFeedbackRating = "useful" | "wrong" | "stale";
+export interface BriefingEntry {
+  id: string;
+  kind: BriefingEntryKind;
+  taskKey?: string;
+  workTitle?: string;
+  actionId?: string;
+  title: string;
+  body: string;
+  evidenceRevision: string;
+  evidence: string[];
+  source: "deterministic" | "model";
+  confidence: StatusConfidence;
+  updatedAt: number;
+  priority: number;
+  feedback?: BriefingFeedbackRating;
+}
+export interface TaskBriefing {
+  taskKey: string;
+  evidenceRevision: string;
+  current: BriefingEntry;
+  decision?: BriefingEntry;
+  recommendation: BriefingEntry;
+  next: BriefingEntry;
+  attentionScore: number;
+}
+export interface WorkspaceBriefingSection {
+  total: number;
+  items: BriefingEntry[];
+}
+export interface WorkspaceBriefing {
+  generatedAt: number;
+  evidenceRevision: string;
+  nowRunning: WorkspaceBriefingSection;
+  decisions: WorkspaceBriefingSection;
+  recommendations: WorkspaceBriefingSection;
+  nextSteps: WorkspaceBriefingSection;
 }
 export interface SourceHealth {
   id: string;

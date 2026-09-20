@@ -23,6 +23,7 @@ ThreadHelm gives that scattered work one operating surface without pretending ev
 
 | Surface | What it answers |
 | --- | --- |
+| **Astra briefing** | What is running now, which decisions need me, what is recommended, and what should happen next? |
 | **Unified work** | What is running, waiting, complete, or stale across every connected source and machine? |
 | **Action inbox** | Which decisions, failures, delivery problems, or watched completions need me? |
 | **Task review** | What result came back, which branch and files changed, and what verification was reported? |
@@ -31,6 +32,8 @@ ThreadHelm gives that scattered work one operating surface without pretending ev
 | **Activity** | Which instructions and decisions were dispatched, and what outcome was recorded? |
 
 The distinction is deliberate: conversations and agent tasks belong in **Work**; raw inference requests do not. Model and router health belongs in **Runtime**.
+
+Every current work item receives a deterministic four-part brief from observed state, open inbox records, source confidence, and bounded evidence. Recommendations expose their evidence revision and can be marked useful, wrong, or stale. Task-specific coordinator proposals appear only while the task evidence still matches the revision captured with the proposal.
 
 The coordinator is on-demand rather than autonomous background traffic. It uses `codex exec` to produce bounded recommendations from the current workspace snapshot. Coordinator output is proposal-only in this release: the server records what it recommends and does not execute those actions. Direct controls remain explicit owner actions.
 
@@ -94,6 +97,7 @@ For a durable install, use `python3 scripts/install-local.py` on macOS or `pytho
 - Credential files must be owner-only (`0600`), network source endpoints must be loopback, Claude activity paths must be absolute and owner-local, SSH bridges may call only a loopback ThreadHelm endpoint on the workstation, and secrets are stripped from Runtime payloads and errors.
 - Command delivery is idempotent. Uncertain delivery remains visible for review and is never retried automatically.
 - Coordinator recommendations are proposal-only at the server boundary. They cannot send, create, archive, clear inbox items, or answer approvals.
+- Briefing recommendations are revision-bound. Changed task evidence removes an older task-specific model proposal from the current brief, and feedback is stored against the exact recommendation and revision.
 - Codex controls are enabled only for exact App Server versions that passed the release probe; inventory remains visible when an unknown version disables controls.
 - Existing databases are backed up with SQLite before each ordered schema migration. Command audit rows identify the owner, coordinator, or autopilot actor.
 - New Git work uses a sibling `codex/*` worktree by default. Running in an occupied checkout requires an explicit override.

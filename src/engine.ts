@@ -2,7 +2,14 @@ import { EventEmitter } from "node:events";
 import { createHash } from "node:crypto";
 import { Host } from "./hosts.js";
 import { Store } from "./store.js";
-import { taskKey, Config, Project, Task, WorkItem } from "./types.js";
+import {
+  taskKey,
+  BriefingFeedbackRating,
+  Config,
+  Project,
+  Task,
+  WorkItem,
+} from "./types.js";
 import {
   coordinate,
   type CoordinatorExecution,
@@ -16,6 +23,7 @@ import {
 import { RuntimeMonitor } from "./runtime.js";
 import { demoGit, demoWorkspace, seedDemoStore } from "./demo.js";
 import { policyAction, policyDecision, type PolicyActor } from "./policy.js";
+import { buildTaskBriefing, buildWorkspaceBriefing } from "./briefing.js";
 
 function checkoutName(path: string) {
   const parts = path.replace(/[\\/]+$/, "").split(/[\\/]/);
@@ -397,11 +405,13 @@ export class Engine extends EventEmitter {
           ]),
         ],
         providerSummary,
-      };
+      },
+      briefing = this.briefing();
     return {
       supervisorName:
         this.config.supervisorName?.trim().slice(0, 60) || "Astra",
       baselines: { decision: this.store.decisionBaseline() },
+      briefing,
       summary: this.store.workSummary(),
       projects: demo?.projects || this.projects(),
       hosts:
@@ -440,11 +450,77 @@ export class Engine extends EventEmitter {
     };
   }
   workItems(query: any = {}) {
-    const result = this.store.workItems(query);
+    const result = this.store.workItems(query),
+      actions = this.store.openActions(),
+      proposals = this.store.coordinatorProposals(),
+      feedback = this.store.briefingFeedback();
     return {
       ...result,
-      items: result.items.map((item) => this.withAvailability(item)),
+      items: result.items.map((item) => {
+        const available = this.withAvailability(item);
+        return {
+          ...available,
+          briefing: buildTaskBriefing(
+            available,
+            actions,
+            proposals,
+            feedback,
+          ),
+        };
+      }),
     };
+  }
+  briefing() {
+    const actions = this.store.openActions(),
+      candidates = this.store.briefingCandidates(),
+      present = new Map(candidates.map((item) => [item.key, item]));
+    for (const action of actions) {
+      if (!action.task_key || present.has(action.task_key)) continue;
+      const item = this.store.workItem(String(action.task_key));
+      if (item) present.set(item.key, item);
+    }
+    return buildWorkspaceBriefing(
+      [...present.values()].map((item) => this.withAvailability(item)),
+      actions,
+      this.store.coordinatorProposals(),
+      this.store.briefingFeedback(),
+    );
+  }
+  rateRecommendation(
+    recommendationId: string,
+    evidenceRevision: string,
+    taskKey: string | null,
+    rating: BriefingFeedbackRating,
+  ) {
+    let recommendation;
+    if (taskKey) {
+      const item = this.store.workItem(taskKey);
+      if (!item) throw new Error("Recommendation task no longer exists");
+      recommendation = buildTaskBriefing(
+        this.withAvailability(item),
+        this.store.openActions(),
+        this.store.coordinatorProposals(),
+        this.store.briefingFeedback(),
+      ).recommendation;
+    } else {
+      recommendation = this.briefing().recommendations.items.find(
+        (entry) => entry.id === recommendationId,
+      );
+    }
+    if (
+      !recommendation ||
+      recommendation.id !== recommendationId ||
+      recommendation.evidenceRevision !== evidenceRevision
+    )
+      throw new Error("This recommendation is stale; refresh the briefing");
+    const saved = this.store.saveBriefingFeedback(
+      recommendationId,
+      evidenceRevision,
+      taskKey,
+      rating,
+    );
+    this.emit("change");
+    return saved;
   }
   private withAvailability(item: WorkItem) {
     if (this.config.mode === "demo") return item;
@@ -480,6 +556,18 @@ export class Engine extends EventEmitter {
         : item;
     return available ? projected : { ...projected, status: "offline" as const };
   }
+  private withBriefing(item: WorkItem) {
+    const available = this.withAvailability(item);
+    return {
+      ...available,
+      briefing: buildTaskBriefing(
+        available,
+        this.store.openActions(),
+        this.store.coordinatorProposals(),
+        this.store.briefingFeedback(),
+      ),
+    };
+  }
   watch(key: string, value: boolean) {
     const work = this.store.workItem(key);
     if (!work) throw new Error("Work item not found");
@@ -501,7 +589,7 @@ export class Engine extends EventEmitter {
     if (!work) throw new Error("Work item not found");
     if (this.config.mode === "demo")
       return {
-        task: work,
+        task: this.withBriefing(work),
         messages: boundDetailMessages(work.messages),
         git: demoGit(key),
       };
@@ -515,7 +603,7 @@ export class Engine extends EventEmitter {
       this.ingest(tasks[0]);
       const git = await h.git(t.id);
       return {
-        task: this.withAvailability(this.store.workItem(key)!),
+        task: this.withBriefing(this.store.workItem(key)!),
         messages: boundDetailMessages(tasks[0].messages),
         git,
       };
@@ -527,7 +615,7 @@ export class Engine extends EventEmitter {
     if (!adapter) throw new Error("Source connector is not configured");
     const detail = await adapter.detail(source.nativeId, source);
     return {
-      task: this.withAvailability(work),
+      task: this.withBriefing(work),
       messages: boundDetailMessages(detail.messages),
       git: {
         available: false,
@@ -739,8 +827,24 @@ export class Engine extends EventEmitter {
         .digest("hex");
     plan.evidenceRevision = evidenceRevision;
     this.store.staleCoordinatorProposalsExcept(evidenceRevision);
+    const openActions = this.store.openActions(),
+      feedback = this.store.briefingFeedback();
     return plan.actions.map((candidate, index): CoordinatorExecution => {
-      const modelActionId = candidate.id,
+      const work = candidate.taskKey
+          ? this.store.workItem(candidate.taskKey)
+          : undefined,
+        taskEvidenceRevision = work
+          ? buildTaskBriefing(
+              this.withAvailability(work),
+              openActions,
+              [],
+              feedback,
+            ).evidenceRevision
+          : undefined,
+        evidenceBoundCandidate = taskEvidenceRevision
+          ? { ...candidate, briefingEvidenceRevision: taskEvidenceRevision }
+          : candidate,
+        modelActionId = candidate.id,
         proposalId = `proposal-${createHash("sha256")
           .update(`${evidenceRevision}\0${modelActionId}`)
           .digest("hex")}`,
@@ -748,7 +852,7 @@ export class Engine extends EventEmitter {
           proposalId,
           evidenceRevision,
           modelActionId,
-          candidate,
+          evidenceBoundCandidate,
         ),
         action = { ...saved.action, id: saved.id };
       plan.actions[index] = action;

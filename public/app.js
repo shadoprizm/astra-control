@@ -32,6 +32,7 @@ let state = {
     actions: [],
     commands: [],
     chat: [],
+    briefing: {},
     runtime: {},
   },
   filter = "all",
@@ -59,6 +60,7 @@ let state = {
   inboxGroups = new Map();
 const drafts = new Map();
 const selectedActions = new Set();
+const expandedBriefingEvidence = new Set();
 let workFilterTimer,
   renderedPageRevision = "";
 const ago = (t) => {
@@ -219,6 +221,7 @@ function pageRevision(value = state) {
     tasks: value.tasks,
     inboxItems: value.inboxItems,
     actions: value.actions,
+    briefing: value.briefing,
     ...(view === "activity" ? { commands: value.commands } : {}),
     ...(view === "runtime" ? { runtime: value.runtime } : {}),
   });
@@ -227,6 +230,77 @@ function renderIfChanged() {
   if (pageRevision() === renderedPageRevision) return false;
   render();
   return true;
+}
+function briefingFeedbackHtml(entry) {
+  if (entry.kind !== "recommendation") return "";
+  return `<div class="briefing-feedback" aria-label="Rate this recommendation"><span>Was this useful?</span>${[
+    ["useful", "Useful"],
+    ["wrong", "Wrong"],
+    ["stale", "Stale"],
+  ]
+    .map(
+      ([value, label]) =>
+        `<button class="${entry.feedback === value ? "selected" : ""}" data-briefing-feedback="${value}" data-recommendation="${esc(entry.id)}" data-revision="${esc(entry.evidenceRevision)}"${entry.taskKey ? ` data-briefing-task="${esc(entry.taskKey)}"` : ""} aria-pressed="${entry.feedback === value}">${label}</button>`,
+    )
+    .join("")}</div>`;
+}
+function briefingEntryHtml(entry) {
+  const source = entry.source === "model" ? "AI proposal" : "Evidence brief",
+    subject = entry.workTitle || "Workspace",
+    primary = entry.actionId
+      ? `<button class="briefing-open" data-action="${esc(entry.actionId)}">${entry.kind === "decision" ? "Review decision" : "Review item"} →</button>`
+      : entry.taskKey
+        ? `<button class="briefing-open" data-task="${esc(entry.taskKey)}">Open evidence →</button>`
+        : "",
+    expanded = expandedBriefingEvidence.has(entry.id);
+  const evidenceLabel = `Evidence ${entry.evidenceRevision.slice(0, 8)}`;
+  return `<article class="briefing-item ${esc(entry.source)}"><div class="briefing-kicker"><span>${esc(source)}</span><span>${ago(entry.updatedAt)}</span></div><strong>${esc(subject)}</strong><h4>${esc(entry.title)}</h4><p>${esc(entry.body)}</p><div class="briefing-item-actions">${primary}<button class="briefing-evidence" data-show-evidence="${esc(entry.id)}" data-evidence-label="${esc(evidenceLabel)}" aria-expanded="${expanded}" aria-label="${expanded ? "Hide" : "Show"} evidence for ${esc(entry.title)}">${expanded ? "Hide evidence" : esc(evidenceLabel)}</button></div>${briefingFeedbackHtml(entry)}<div class="briefing-evidence-lines" data-evidence-for="${esc(entry.id)}" ${expanded ? "" : "hidden"}>${(entry.evidence || []).map((line) => `<span>${esc(line)}</span>`).join("")}</div></article>`;
+}
+function briefingColumnHtml(section, empty) {
+  return section?.items?.length
+    ? section.items.slice(0, 4).map(briefingEntryHtml).join("")
+    : `<div class="briefing-empty">${esc(empty)}</div>`;
+}
+function renderBriefing() {
+  const briefing = state.briefing || {},
+    name = state.supervisorName || "Astra";
+  $("#briefing-title").textContent = `${name} briefing`;
+  $("#briefing-revision").textContent = briefing.evidenceRevision
+    ? `Evidence ${briefing.evidenceRevision.slice(0, 10)} · refreshed ${ago(briefing.generatedAt)}`
+    : "No briefing evidence available";
+  const sections = [
+    ["now", briefing.nowRunning, "No source currently proves that work is running."],
+    ["decisions", briefing.decisions, "No open decision currently needs you."],
+    ["recommendations", briefing.recommendations, "No recommendation is supported by current evidence."],
+    ["next", briefing.nextSteps, "No immediate next step is supported by current evidence."],
+  ];
+  for (const [id, section, empty] of sections) {
+    $(`#briefing-${id}`).innerHTML = briefingColumnHtml(section, empty);
+    $(`#briefing-${id}-count`).textContent = `${section?.total || 0} item${section?.total === 1 ? "" : "s"}`;
+  }
+}
+function taskBriefCardHtml(task) {
+  const briefing = task.briefing;
+  if (!briefing) return "";
+  const supervisor = state.supervisorName || "Astra",
+    rows = [
+      ["Now", briefing.current?.title],
+      ["You", briefing.decision?.title || "No decision pending"],
+      [supervisor, briefing.recommendation?.title],
+      ["Next", briefing.next?.title],
+    ];
+  return `<button class="task-brief" data-task="${esc(task.key)}" aria-label="Open evidence briefing for ${esc(shortTitle(task))}">${rows.map(([label, value]) => `<span><b>${label}</b><em>${esc(value || "Not available")}</em></span>`).join("")}</button>`;
+}
+function taskBriefDetailHtml(task) {
+  const briefing = task.briefing;
+  if (!briefing) return "";
+  const entries = [
+    ["Now", briefing.current],
+    ["Your decision", briefing.decision],
+    ["Recommendation", briefing.recommendation],
+    ["Next", briefing.next],
+  ];
+  return `<section class="task-brief-detail"><div class="task-brief-detail-heading"><div><div class="eyebrow">EVIDENCE BRIEF</div><h3>What is happening and what follows</h3></div><small>${esc(briefing.evidenceRevision.slice(0, 10))}</small></div><div class="task-brief-detail-grid">${entries.map(([label, entry]) => `<article class="${entry ? "" : "empty-entry"}"><span>${esc(label)}</span><strong>${esc(entry?.title || "Nothing pending")}</strong><p>${esc(entry?.body || "No owner decision is required by the current evidence.")}</p>${entry?.kind === "recommendation" ? briefingFeedbackHtml(entry) : ""}</article>`).join("")}</div></section>`;
 }
 async function refresh() {
   try {
@@ -332,7 +406,6 @@ function render() {
     )
     .join("");
   $("#inbox-count").textContent = groups.length;
-  $("#attention-count").textContent = groups.length;
   $("#page-name").textContent =
     view === "inbox"
       ? "Action inbox"
@@ -348,10 +421,7 @@ function render() {
   $("#inbox-view").hidden = view !== "inbox";
   $("#activity-view").hidden = view !== "activity";
   $("#runtime-view").hidden = view !== "runtime";
-  const shown = groups.slice(0, 4);
-  $("#attention").innerHTML = shown.length
-    ? shown.map((group) => attentionCard(group)).join("")
-    : `<div class="empty compact">${watched.length ? "You’re caught up. New results and decisions will stay here until you handle them." : "Start by watching the tasks you want to coordinate. Their results and decisions will appear here."}</div>`;
+  renderBriefing();
   if (view === "inbox") renderInbox(groups);
   if (view === "activity") renderActivity();
   if (view === "runtime") renderRuntime();
@@ -373,7 +443,7 @@ function render() {
     ? tasks
         .map(
           (t) =>
-            `<article class="task-card"><div class="task-card-top"><span class="source-badge source-${esc(t.sourceRefs?.[0]?.adapter || "unknown")}">${esc(sourceName(t))}</span><span class="badge ${taskStatus(t)}">${esc(taskStatus(t) === "recent" ? "Recently active" : taskStatus(t) === "offline" ? "Stale / offline" : taskStatus(t))}</span></div><button class="task-open" data-task="${esc(t.key)}"><h3>${esc(shortTitle(t))}</h3><p>${esc(plainPreview(t.latestExcerpt || t.latest?.text) || "Open this item to see its recent conversation.")}</p></button><div class="execution-meta"><span>${esc(t.sourceRefs?.[0]?.profile || t.sourceRefs?.[0]?.agent || t.kind)}</span><span>${esc(t.execution?.host || hostName(t.hostId))}</span>${t.execution?.requestedModel ? `<span title="Requested model">${esc(t.execution.requestedModel)}</span>` : ""}${t.execution?.resolvedModel && t.execution.resolvedModel !== t.execution.requestedModel ? `<span title="Resolved model">→ ${esc(t.execution.resolvedModel)}</span>` : ""}<span>${esc(t.execution?.locality || "unknown")} inference</span><span>${esc(t.statusConfidence || "authoritative")}</span></div><div class="task-meta"><span>${ago(t.updatedAt)}${t.managed ? " · Managed" : ""}</span><button class="watch ${t.watched ? "on" : ""}" data-watch="${esc(t.key)}">${t.watched ? "◉ Watching" : "＋ Watch"}</button></div></article>`,
+            `<article class="task-card"><div class="task-card-top"><span class="source-badge source-${esc(t.sourceRefs?.[0]?.adapter || "unknown")}">${esc(sourceName(t))}</span><span class="badge ${taskStatus(t)}">${esc(taskStatus(t) === "recent" ? "Recently active" : taskStatus(t) === "offline" ? "Stale / offline" : taskStatus(t))}</span></div><button class="task-open" data-task="${esc(t.key)}"><h3>${esc(shortTitle(t))}</h3><p>${esc(plainPreview(t.latestExcerpt || t.latest?.text) || "Open this item to see its recent conversation.")}</p></button>${taskBriefCardHtml(t)}<div class="execution-meta"><span>${esc(t.sourceRefs?.[0]?.profile || t.sourceRefs?.[0]?.agent || t.kind)}</span><span>${esc(t.execution?.host || hostName(t.hostId))}</span>${t.execution?.requestedModel ? `<span title="Requested model">${esc(t.execution.requestedModel)}</span>` : ""}${t.execution?.resolvedModel && t.execution.resolvedModel !== t.execution.requestedModel ? `<span title="Resolved model">→ ${esc(t.execution.resolvedModel)}</span>` : ""}<span>${esc(t.execution?.locality || "unknown")} inference</span><span>${esc(t.statusConfidence || "authoritative")}</span></div><div class="task-meta"><span>${ago(t.updatedAt)}${t.managed ? " · Managed" : ""}</span><button class="watch ${t.watched ? "on" : ""}" data-watch="${esc(t.key)}">${t.watched ? "◉ Watching" : "＋ Watch"}</button></div></article>`,
         )
         .join("")
     : `<div class="empty"><strong>${filter === "watched" ? "Choose your working set." : "No matching work."}</strong>${filter === "watched" ? "Watch agent work you want surfaced in the Action Inbox." : "Try another filter or search."}${filter === "watched" ? '<button class="secondary" data-show-all>Browse recent work →</button>' : ""}</div>`;
@@ -678,7 +748,7 @@ function renderDemoDetail(t, g, status, content, messages, scroll) {
           `<li><strong>${esc(sourceName({ sourceRefs: [source] }))}</strong> · ${esc(source.profile || source.agent || source.nativeId)} · ${esc(source.hostId)}</li>`,
       )
       .join("");
-  content.innerHTML = `<div class="task-context"><div><span class="source-badge source-${esc(t.sourceRefs?.[0]?.adapter || "unknown")}">${esc(sourceName(t))}</span><span class="badge ${status}">${esc(status === "recent" ? "Recently active" : status)}</span></div><span class="demo-control-note">Controls disabled in demo</span></div><div class="ownership-note">Synthetic work detail. No agent or source system is connected.</div><div class="execution-panel"><span>${esc(t.execution?.host || t.hostId)}</span><span>${esc(t.execution?.requestedModel || "Model not reported")}</span>${t.execution?.resolvedModel ? `<span>Resolved: ${esc(t.execution.resolvedModel)}</span>` : ""}<span>${esc(t.execution?.locality || "unknown")} inference</span><span>${esc(t.statusConfidence)} status</span></div>${reviewHtml(messages, g)}<section class="conversation-section"><div class="conversation-heading"><h3>Recent sample conversation</h3><span>Synthetic and bounded</span></div><div class="messages">${conversationHtml(earlier.slice(-30)) || '<div class="empty compact">No earlier conversation items are available.</div>'}</div></section>${repositoryHtml(g)}<details class="technical-details"><summary><span>Provenance</span><small>${t.sourceRefs?.length || 0} source${t.sourceRefs?.length === 1 ? "" : "s"}</small></summary><ul>${provenance}</ul></details>`;
+  content.innerHTML = `<div class="task-context"><div><span class="source-badge source-${esc(t.sourceRefs?.[0]?.adapter || "unknown")}">${esc(sourceName(t))}</span><span class="badge ${status}">${esc(status === "recent" ? "Recently active" : status)}</span></div><span class="demo-control-note">Controls disabled in demo</span></div><div class="ownership-note">Synthetic work detail. No agent or source system is connected.</div>${taskBriefDetailHtml(t)}<div class="execution-panel"><span>${esc(t.execution?.host || t.hostId)}</span><span>${esc(t.execution?.requestedModel || "Model not reported")}</span>${t.execution?.resolvedModel ? `<span>Resolved: ${esc(t.execution.resolvedModel)}</span>` : ""}<span>${esc(t.execution?.locality || "unknown")} inference</span><span>${esc(t.statusConfidence)} status</span></div>${reviewHtml(messages, g)}<section class="conversation-section"><div class="conversation-heading"><h3>Recent sample conversation</h3><span>Synthetic and bounded</span></div><div class="messages">${conversationHtml(earlier.slice(-30)) || '<div class="empty compact">No earlier conversation items are available.</div>'}</div></section>${repositoryHtml(g)}<details class="technical-details"><summary><span>Provenance</span><small>${t.sourceRefs?.length || 0} source${t.sourceRefs?.length === 1 ? "" : "s"}</small></summary><ul>${provenance}</ul></details>`;
   restorePanelScroll(scroll);
 }
 function renderDetail(d, scroll) {
@@ -706,7 +776,7 @@ function renderDetail(d, scroll) {
             `<li><strong>${esc(sourceName({ sourceRefs: [source] }))}</strong> · ${esc(source.profile || source.agent || source.nativeId)} · ${esc(source.hostId)}</li>`,
         )
         .join("");
-    content.innerHTML = `<div class="task-context"><div><span class="source-badge source-${esc(t.sourceRefs?.[0]?.adapter || "unknown")}">${esc(sourceName(t))}</span><span class="badge ${status}">${esc(status === "recent" ? "Recently active" : status)}</span></div><div class="actions-row">${links}<button class="secondary" data-task="${esc(t.key)}">Refresh</button></div></div><div class="ownership-note">Observed here. ThreadHelm does not send, pause, archive, or approve work in this source yet.</div><div class="execution-panel"><span>${esc(t.execution?.host || t.hostId)}</span><span>${esc(t.execution?.requestedModel || "Model not reported")}</span>${t.execution?.resolvedModel ? `<span>Resolved: ${esc(t.execution.resolvedModel)}</span>` : ""}<span>${esc(t.execution?.locality || "unknown")} inference</span><span>${esc(t.statusConfidence)} status</span></div><section class="conversation-section"><div class="conversation-heading"><h3>Recent bounded detail</h3><span>Up to 30 entries; full history stays at the source</span></div><div class="messages">${conversationHtml(messages) || '<div class="empty compact">No recent detail was returned.</div>'}</div></section><details class="technical-details"><summary><span>Provenance</span><small>${t.sourceRefs?.length || 0} source${t.sourceRefs?.length === 1 ? "" : "s"}</small></summary><ul>${provenance}</ul></details>`;
+    content.innerHTML = `<div class="task-context"><div><span class="source-badge source-${esc(t.sourceRefs?.[0]?.adapter || "unknown")}">${esc(sourceName(t))}</span><span class="badge ${status}">${esc(status === "recent" ? "Recently active" : status)}</span></div><div class="actions-row">${links}<button class="secondary" data-task="${esc(t.key)}">Refresh</button></div></div><div class="ownership-note">Observed here. ThreadHelm does not send, pause, archive, or approve work in this source yet.</div>${taskBriefDetailHtml(t)}<div class="execution-panel"><span>${esc(t.execution?.host || t.hostId)}</span><span>${esc(t.execution?.requestedModel || "Model not reported")}</span>${t.execution?.resolvedModel ? `<span>Resolved: ${esc(t.execution.resolvedModel)}</span>` : ""}<span>${esc(t.execution?.locality || "unknown")} inference</span><span>${esc(t.statusConfidence)} status</span></div><section class="conversation-section"><div class="conversation-heading"><h3>Recent bounded detail</h3><span>Up to 30 entries; full history stays at the source</span></div><div class="messages">${conversationHtml(messages) || '<div class="empty compact">No recent detail was returned.</div>'}</div></section><details class="technical-details"><summary><span>Provenance</span><small>${t.sourceRefs?.length || 0} source${t.sourceRefs?.length === 1 ? "" : "s"}</small></summary><ul>${provenance}</ul></details>`;
     restorePanelScroll(scroll);
     return;
   }
@@ -723,7 +793,7 @@ function renderDetail(d, scroll) {
       : !t.managed && t.owned
         ? "Continue in Codex — this task is desktop-owned"
         : "Send to agent →";
-  content.innerHTML = `<div class="task-context"><div><span class="badge ${status}">${esc(status === "idle" ? "Turn complete" : status === "offline" ? "Stale / offline" : status)}</span><span>${esc(hostName(t.hostId))} · ${esc(repo(t))}</span></div><div class="actions-row"><a href="codex://threads/${encodeURIComponent(t.id)}">Open in Codex ↗</a>${controls && t.managed && status === "active" ? `<button class="secondary" data-pause="${esc(t.key)}">Pause turn</button>` : ""}${controls && inactive ? `<button class="secondary" data-archive="${esc(t.key)}">Archive task</button>` : ""}<button class="secondary" data-task="${esc(t.key)}">Refresh</button></div></div>${signalHtml(signal, t)}${!controls ? `<div class="ownership-note warn">${esc(t.controlReason || "Controls are disabled because this Codex protocol has not passed the compatibility probe.")}</div>` : !t.managed ? `<div class="ownership-note ${t.owned ? "warn" : ""}">${t.owned ? "This task is controlled by Codex desktop. Reply there to continue it." : "Sending a reply will bring this available task under dashboard control."}</div>` : ""}${reviewHtml(messages, g)}<section class="conversation-section"><div class="conversation-heading"><h3>Earlier conversation and activity</h3><span>Technical activity is collapsed</span></div><div class="messages">${conversationHtml(earlier.slice(-30)) || '<div class="empty compact">No earlier conversation items are available.</div>'}</div></section><form class="compose" id="send-form"><label for="send-input">Reply or give the agent its next instruction</label><textarea id="send-input" rows="4" placeholder="Write a clear answer or describe what should happen next…" ${controls ? "" : "disabled"}>${esc(drafts.get(t.key) || "")}</textarea><button class="primary full" type="submit" ${sendDisabled ? "disabled" : ""}>${sendLabel}</button></form>${repositoryHtml(g)}`;
+  content.innerHTML = `<div class="task-context"><div><span class="badge ${status}">${esc(status === "idle" ? "Turn complete" : status === "offline" ? "Stale / offline" : status)}</span><span>${esc(hostName(t.hostId))} · ${esc(repo(t))}</span></div><div class="actions-row"><a href="codex://threads/${encodeURIComponent(t.id)}">Open in Codex ↗</a>${controls && t.managed && status === "active" ? `<button class="secondary" data-pause="${esc(t.key)}">Pause turn</button>` : ""}${controls && inactive ? `<button class="secondary" data-archive="${esc(t.key)}">Archive task</button>` : ""}<button class="secondary" data-task="${esc(t.key)}">Refresh</button></div></div>${signalHtml(signal, t)}${!controls ? `<div class="ownership-note warn">${esc(t.controlReason || "Controls are disabled because this Codex protocol has not passed the compatibility probe.")}</div>` : !t.managed ? `<div class="ownership-note ${t.owned ? "warn" : ""}">${t.owned ? "This task is controlled by Codex desktop. Reply there to continue it." : "Sending a reply will bring this available task under dashboard control."}</div>` : ""}${taskBriefDetailHtml(t)}${reviewHtml(messages, g)}<section class="conversation-section"><div class="conversation-heading"><h3>Earlier conversation and activity</h3><span>Technical activity is collapsed</span></div><div class="messages">${conversationHtml(earlier.slice(-30)) || '<div class="empty compact">No earlier conversation items are available.</div>'}</div></section><form class="compose" id="send-form"><label for="send-input">Reply or give the agent its next instruction</label><textarea id="send-input" rows="4" placeholder="Write a clear answer or describe what should happen next…" ${controls ? "" : "disabled"}>${esc(drafts.get(t.key) || "")}</textarea><button class="primary full" type="submit" ${sendDisabled ? "disabled" : ""}>${sendLabel}</button></form>${repositoryHtml(g)}`;
   restorePanelScroll(scroll);
   $("#send-input").addEventListener("input", (e) =>
     drafts.set(t.key, e.target.value),
@@ -1225,6 +1295,33 @@ document.addEventListener("click", async (e) => {
     await loadWork(true);
     render();
   }
+  if (b.dataset.showEvidence) {
+    if (expandedBriefingEvidence.has(b.dataset.showEvidence))
+      expandedBriefingEvidence.delete(b.dataset.showEvidence);
+    else expandedBriefingEvidence.add(b.dataset.showEvidence);
+    const evidence = document.querySelector(
+      `[data-evidence-for="${CSS.escape(b.dataset.showEvidence)}"]`,
+    );
+    if (evidence) {
+      evidence.hidden = !evidence.hidden;
+      b.textContent = evidence.hidden ? b.dataset.evidenceLabel : "Hide evidence";
+      b.setAttribute("aria-expanded", String(!evidence.hidden));
+      b.setAttribute(
+        "aria-label",
+        `${evidence.hidden ? "Show" : "Hide"} evidence for this briefing item`,
+      );
+    }
+  }
+  if (b.dataset.briefingFeedback)
+    await perform(b, async () => {
+      await api("/api/briefing/feedback", {
+        recommendationId: b.dataset.recommendation,
+        evidenceRevision: b.dataset.revision,
+        taskKey: b.dataset.briefingTask || null,
+        rating: b.dataset.briefingFeedback,
+      });
+      toast("Recommendation feedback recorded.");
+    });
   if (b.dataset.task) await openTask(b.dataset.task);
   if (b.dataset.watch) {
     const t = state.tasks.find((t) => t.key === b.dataset.watch);

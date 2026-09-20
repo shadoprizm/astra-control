@@ -8,6 +8,23 @@ Project authority will inherit owner-set, versioned defaults from the [per-proje
 
 The staged path from the current activity feed to the decision-oriented Astra experience, including release gates, provider order, value, and risks, is defined in the [Astra Control proposal](ASTRA_CONTROL_PROPOSAL.md).
 
+## Astra release status
+
+### Release 0 — Safety foundation
+
+- [x] Proposal-only coordinator, deterministic authority, evidence-bound proposal IDs, actor audit, ordered migration backups, rollback drills, adversarial tests, protocol gates, objective template, and immutable pre-briefing baseline.
+
+### Release 1A — Read-only briefing
+
+- [x] Deterministic Now, Decision, Recommendation, and Next brief for current work.
+- [x] Attention-ordered workspace overview and the same four fields on task cards and task review.
+- [x] Evidence expansion, confidence display, revision-bound useful/wrong/stale feedback, and stale model-proposal suppression.
+- [x] Responsive desktop and 390px layouts with no briefing mutation authority.
+- [ ] Measure at least 50 owner decisions over at least 14 days and compare median time-to-decision and missed decisions with the Release 0 baseline.
+- [ ] Instrument the seven-day model-analysis shadow budget before enabling automatic tiered analysis. Until then, only on-demand coordinator proposals enter the model recommendation lane.
+
+Release 1A remains in measurement mode until both open checks pass. Release 1B dispatcher and worker work does not inherit authority from this UI.
+
 ## 0.1 — Open-source foundation
 
 - [x] Multi-machine discovery, watched tasks, durable inbox, coordinator, and managed Codex actions.

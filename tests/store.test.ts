@@ -604,6 +604,16 @@ test("coordinator actions are proposal-only and cannot mutate the workspace", as
     assert.ok(
       plan.actions.every((action) => action.id.startsWith("proposal-")),
     );
+    assert.ok(
+      plan.actions.every((action) =>
+        /^([a-f0-9]{64})$/.test(
+          String(
+            s.coordinatorProposal(action.id)?.action
+              ?.briefingEvidenceRevision,
+          ),
+        ),
+      ),
+    );
     assert.equal(s.command("zero"), undefined);
   } finally {
     e.close();
@@ -643,6 +653,43 @@ test("coordinator proposal IDs are stable for one evidence revision and stale ac
     );
   } finally {
     e.close();
+    close();
+  }
+});
+test("briefing feedback is revision-bound and updates one recommendation label", () => {
+  const { s, close } = setup();
+  try {
+    s.saveBriefingFeedback(
+      "recommendation-one",
+      "revision-one",
+      fixture.key,
+      "useful",
+    );
+    s.saveBriefingFeedback(
+      "recommendation-one",
+      "revision-one",
+      fixture.key,
+      "wrong",
+    );
+    s.saveBriefingFeedback(
+      "recommendation-one",
+      "revision-two",
+      fixture.key,
+      "stale",
+    );
+    const feedback = s.briefingFeedback();
+    assert.equal(feedback.length, 2);
+    assert.equal(
+      feedback.find((entry) => entry.evidence_revision === "revision-one")
+        .rating,
+      "wrong",
+    );
+    assert.equal(
+      feedback.find((entry) => entry.evidence_revision === "revision-two")
+        .rating,
+      "stale",
+    );
+  } finally {
     close();
   }
 });

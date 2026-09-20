@@ -15,6 +15,7 @@ export interface CoordinatorAction {
   id: string;
   type: CoordinatorActionType;
   reason: string;
+  briefingEvidenceRevision?: string;
   taskKey?: string;
   prompt?: string;
   hostId?: string;

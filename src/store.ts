@@ -2,7 +2,13 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import type { Task, WorkItem, WorkSourceRef, WorkStatus } from "./types.js";
+import type {
+  BriefingFeedbackRating,
+  Task,
+  WorkItem,
+  WorkSourceRef,
+  WorkStatus,
+} from "./types.js";
 import type { SourceObservation } from "./adapters.js";
 
 export interface WorkQuery {
@@ -223,6 +229,21 @@ export class Store {
         CREATE INDEX IF NOT EXISTS coordinator_proposals_status_idx ON coordinator_proposals(status,created_at DESC);
       `);
     });
+    this.applyMigration(5, () => {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS briefing_feedback(
+          id TEXT PRIMARY KEY,
+          recommendation_id TEXT NOT NULL,
+          evidence_revision TEXT NOT NULL,
+          task_key TEXT,
+          rating TEXT NOT NULL CHECK(rating IN ('useful','wrong','stale')),
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          UNIQUE(recommendation_id,evidence_revision)
+        );
+        CREATE INDEX IF NOT EXISTS briefing_feedback_updated_idx ON briefing_feedback(updated_at DESC);
+      `);
+    });
   }
   private captureDecisionBaseline() {
     const key = "baseline.release0.decision.v1";
@@ -321,6 +342,66 @@ export class Store {
       )
       .all()
       .map((row: any) => ({ ...row, action: parse(row.action, null) }));
+  }
+  saveBriefingFeedback(
+    recommendationId: string,
+    evidenceRevision: string,
+    taskKey: string | null,
+    rating: BriefingFeedbackRating,
+  ) {
+    const now = Date.now(),
+      id = `${recommendationId}:${evidenceRevision}`;
+    this.db
+      .prepare(
+        "INSERT INTO briefing_feedback(id,recommendation_id,evidence_revision,task_key,rating,created_at,updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(recommendation_id,evidence_revision) DO UPDATE SET rating=excluded.rating,task_key=excluded.task_key,updated_at=excluded.updated_at",
+      )
+      .run(
+        id,
+        recommendationId,
+        evidenceRevision,
+        taskKey,
+        rating,
+        now,
+        now,
+      );
+    return this.db
+      .prepare(
+        "SELECT * FROM briefing_feedback WHERE recommendation_id=? AND evidence_revision=?",
+      )
+      .get(recommendationId, evidenceRevision) as any;
+  }
+  briefingFeedback(): any[] {
+    return this.db
+      .prepare(
+        "SELECT * FROM briefing_feedback ORDER BY updated_at DESC LIMIT 1000",
+      )
+      .all() as any[];
+  }
+  openActions(limit = 1000) {
+    return this.db
+      .prepare(
+        "SELECT * FROM actions WHERE status<>'resolved' ORDER BY created_at DESC LIMIT ?",
+      )
+      .all(Math.max(1, Math.min(5000, limit)))
+      .map(storedAction);
+  }
+  briefingCandidates(limit = 250) {
+    const rows = this.db
+      .prepare(
+        `SELECT payload,watched FROM work_items
+         WHERE (archived=0 OR pinned=1)
+           AND (watched=1 OR status IN ('active','recent','waiting','failed','offline'))
+         ORDER BY CASE status
+           WHEN 'failed' THEN 1 WHEN 'waiting' THEN 2 WHEN 'active' THEN 3
+           WHEN 'recent' THEN 4 WHEN 'offline' THEN 5 ELSE 6 END,
+           watched DESC,updated_at DESC,id
+         LIMIT ?`,
+      )
+      .all(Math.max(1, Math.min(1000, limit))) as any[];
+    return rows.map((row) => ({
+      ...parse<WorkItem>(row.payload, {} as WorkItem),
+      watched: !!row.watched,
+    }));
   }
   upsert(t: Task) {
     const compact = storedTask(t);

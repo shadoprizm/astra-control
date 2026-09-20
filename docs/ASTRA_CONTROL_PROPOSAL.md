@@ -121,6 +121,8 @@ Delivered: proposal-only coordinator enforcement, deterministic actor/action pol
 
 Deliver the four-field task brief, attention-ordered overview, reasoned recommendations, deterministic briefing for every item, tiered model analysis, and recommendation feedback controls. No recommendation can call a mutation route.
 
+Implementation status: the deterministic briefing, attention overview, evidence expansion, task cards, revision-bound feedback, and evidence-drift suppression are shipped in measurement mode. Model recommendations currently come only from on-demand coordinator proposals. Automatic tiered analysis remains disabled until call, latency, excerpt-size, and observable token instrumentation completes its seven-day shadow period.
+
 Definition of done:
 
 - At least 90% of sampled active, waiting, and failed cards accurately represent the source state and expose uncertainty.
