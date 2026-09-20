@@ -12,7 +12,7 @@ Project authority will inherit owner-set, versioned defaults from the [per-proje
 - [x] Separate deployable project, MIT license, contribution and security guidance.
 - [x] Authenticated server deployment reachable without a client VPN.
 - [x] Clean-tree, tested, checksum-verified release installers with exact build identity on macOS and Linux.
-- [ ] Complete a destructive rollback drill on both platforms.
+- [x] Complete a destructive rollback drill on both platforms.
 
 ## 0.2 — Unified work capture
 
