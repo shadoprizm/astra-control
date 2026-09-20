@@ -178,21 +178,17 @@ const server = createServer(
           version: release.version,
           build: release.commit,
           installedAt: release.installedAt,
-          hosts: engine
-            .state()
-            .hosts.map((host) => ({
-              id: host.id,
-              online: host.online,
-              inventoryCount: host.inventoryCount,
-            })),
-          sources: engine
-            .state()
-            .sources.map((source) => ({
-              id: source.id,
-              online: source.online,
-              stale: source.stale,
-              itemCount: source.itemCount,
-            })),
+          hosts: engine.state().hosts.map((host) => ({
+            id: host.id,
+            online: host.online,
+            inventoryCount: host.inventoryCount,
+          })),
+          sources: engine.state().sources.map((source) => ({
+            id: source.id,
+            online: source.online,
+            stale: source.stale,
+            itemCount: source.itemCount,
+          })),
         });
       if (path === "/api/events" && req.method === "GET") {
         if (peers.size >= 8)
@@ -242,7 +238,7 @@ const server = createServer(
           return json(res, 200, { ok: true });
         }
         if (path === "/api/actions/resolve") {
-          const a = store.actions().find((a) => a.id === b.id);
+          const a = store.actionById(text(b.id, "action", 100));
           if (!a || (a.kind === "approval" && a.status !== "expired"))
             throw new Error("Use the approval controls to answer this request");
           store.resolve(a.id);
@@ -257,8 +253,7 @@ const server = createServer(
                 (b.ids as unknown[]).map((id) => text(id, "action", 100)),
               ),
             ],
-            actions = store.actions(),
-            chosen = ids.map((id) => actions.find((a) => a.id === id));
+            chosen = ids.map((id) => store.actionById(id));
           if (chosen.some((a) => !a))
             throw new Error("One or more inbox items no longer exist");
           if (

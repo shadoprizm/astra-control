@@ -799,8 +799,9 @@ function coordinatorActions(message) {
   return (message.body.actions || [])
     .map((action) => {
       const result = executions.get(action.id),
-        status = result?.status || "failed";
-      return `<div class="proposal coordinator-action ${esc(status)}"><small>${esc(action.type.toUpperCase())} · ${esc(coordinatorActionTarget(action))}</small><p>${esc(action.reason)}</p><div class="execution-result ${esc(status)}">${status === "accepted" ? "✓" : "!"} ${esc(result?.summary || "The action did not return an execution result.")}</div></div>`;
+        status = result?.status || "proposed",
+        icon = status === "accepted" ? "✓" : status === "proposed" ? "→" : "!";
+      return `<div class="proposal coordinator-action ${esc(status)}"><small>${esc(action.type.toUpperCase())} · ${esc(coordinatorActionTarget(action))}</small><p>${esc(action.reason)}</p><div class="execution-result ${esc(status)}">${icon} ${esc(result?.summary || "Proposal only — no workspace action was executed.")}</div></div>`;
     })
     .join("");
 }
@@ -809,11 +810,15 @@ function renderChat() {
     existing = panel === "chat" && !$("#panel").hidden && !!live,
     scroll = existing ? panelScrollSnapshot() : null;
   panel = "chat";
-  openPanel("AUTONOMOUS COORDINATOR", "Direct your workspace.", !existing);
+  openPanel(
+    "ASTRA COORDINATOR",
+    "Review recommendations for your workspace.",
+    !existing,
+  );
   if (!existing) {
     const draft = drafts.get("chat") || "";
     $("#panel-content").innerHTML =
-      `<div class="notice"><strong>Full Control Centre authority is active.</strong><br>The coordinator recommends a plan, then immediately carries out each validated action in order. Permanent deletion, deployment, push/merge, and worktree removal remain outside this control surface.</div><div id="chat-live"></div><form id="chat-form" class="compose"><textarea id="chat-input" rows="3" placeholder="Review the workspace and carry out what you recommend…">${esc(draft)}</textarea><button class="primary full" type="submit">Direct coordinator →</button></form>`;
+      `<div class="notice"><strong>Recommendations only.</strong><br>The coordinator analyzes your workspace and proposes actions for review. Actions shown here do not execute automatically.</div><div id="chat-live"></div><form id="chat-form" class="compose"><textarea id="chat-input" rows="3" placeholder="Review the workspace and tell me what needs attention…">${esc(draft)}</textarea><button class="primary full" type="submit">Ask coordinator →</button></form>`;
     $("#chat-input").oninput = (e) => drafts.set("chat", e.target.value);
     $("#chat-form").onsubmit = async (e) => {
       e.preventDefault();
@@ -827,7 +832,7 @@ function renderChat() {
   const messages = $("#chat-live"),
     input = $("#chat-input"),
     button = $('#chat-form button[type="submit"]');
-  messages.innerHTML = `<div class="messages">${state.chat.length ? state.chat.map((m) => `<article class="message ${m.role === "user" ? "user" : "assistant"}"><div class="message-meta"><span>${m.role === "user" ? "You" : "Coordinator"}${m.body.model ? ` · ${esc(m.body.model)}` : ""}</span></div><div class="rich-text">${renderRichText(m.body.answer)}</div>${coordinatorActions(m)}${(m.body.dispatches || []).map((d) => `<div class="proposal"><small>LEGACY PROPOSAL · ${esc(title(state.tasks.find((t) => t.key === d.taskKey)))}</small><p>${esc(d.prompt)}</p><button class="secondary" data-proposal-key="${esc(d.taskKey)}" data-proposal-prompt="${esc(d.prompt)}">Send instruction →</button></div>`).join("")}</article>`).join("") : '<div class="empty"><strong>Your workspace has an autonomous coordinator.</strong>Try “Review everything, handle routine cleanup, and keep the important work moving.”</div>'}</div>${state.chatBusy ? '<div class="loading">Coordinator is reviewing the workspace and executing its plan…</div>' : ""}`;
+  messages.innerHTML = `<div class="messages">${state.chat.length ? state.chat.map((m) => `<article class="message ${m.role === "user" ? "user" : "assistant"}"><div class="message-meta"><span>${m.role === "user" ? "You" : "Coordinator"}${m.body.model ? ` · ${esc(m.body.model)}` : ""}</span></div><div class="rich-text">${renderRichText(m.body.answer)}</div>${coordinatorActions(m)}${(m.body.dispatches || []).map((d) => `<div class="proposal"><small>LEGACY PROPOSAL · ${esc(title(state.tasks.find((t) => t.key === d.taskKey)))}</small><p>${esc(d.prompt)}</p><button class="secondary" data-proposal-key="${esc(d.taskKey)}" data-proposal-prompt="${esc(d.prompt)}">Send instruction →</button></div>`).join("")}</article>`).join("") : '<div class="empty"><strong>Your workspace has an AI coordinator.</strong>Try “Review everything and tell me what needs attention first.”</div>'}</div>${state.chatBusy ? '<div class="loading">Coordinator is reviewing the workspace and preparing recommendations…</div>' : ""}`;
   input.disabled = !!state.chatBusy;
   button.disabled = !!state.chatBusy;
   restorePanelScroll(scroll);

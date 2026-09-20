@@ -99,6 +99,14 @@ function storedTask(task: Task): Task {
     messages: [],
   };
 }
+function storedAction(row: any) {
+  return row
+    ? {
+        ...row,
+        payload: row.payload ? parse(row.payload, null) : null,
+      }
+    : undefined;
+}
 
 export class Store {
   db: DatabaseSync;
@@ -545,12 +553,10 @@ export class Store {
       sql = `SELECT payload,watched FROM work_items w WHERE ${where.join(" AND ")} ORDER BY updated_at DESC,id LIMIT ? OFFSET ?`,
       records = this.db.prepare(sql).all(...params, limit + 1, offset) as any[],
       more = records.length > limit,
-      items = records
-        .slice(0, limit)
-        .map((row) => ({
-          ...parse<WorkItem>(row.payload, {} as WorkItem),
-          watched: !!row.watched,
-        }));
+      items = records.slice(0, limit).map((row) => ({
+        ...parse<WorkItem>(row.payload, {} as WorkItem),
+        watched: !!row.watched,
+      }));
     return { items, nextCursor: more ? String(offset + limit) : null };
   }
   workSummary() {
@@ -669,12 +675,36 @@ export class Store {
   }
   actions() {
     return this.db
-      .prepare("SELECT * FROM actions ORDER BY created_at DESC LIMIT 250")
+      .prepare(
+        `SELECT * FROM actions
+         WHERE id IN (SELECT id FROM actions ORDER BY created_at DESC LIMIT 250)
+            OR (kind='approval' AND status IN ('open','responding'))
+         ORDER BY created_at DESC`,
+      )
       .all()
-      .map((r: any) => ({
-        ...r,
-        payload: r.payload ? JSON.parse(r.payload) : null,
-      }));
+      .map(storedAction);
+  }
+  actionById(id: string) {
+    return storedAction(
+      this.db.prepare("SELECT * FROM actions WHERE id=?").get(id),
+    );
+  }
+  pendingApprovals() {
+    return this.db
+      .prepare(
+        "SELECT * FROM actions WHERE kind='approval' AND status IN ('open','responding') ORDER BY created_at DESC",
+      )
+      .all()
+      .map(storedAction);
+  }
+  pendingApprovalForTask(key: string) {
+    return storedAction(
+      this.db
+        .prepare(
+          "SELECT * FROM actions WHERE task_key=? AND kind='approval' AND status IN ('open','responding') ORDER BY created_at DESC LIMIT 1",
+        )
+        .get(key),
+    );
   }
   resolve(id: string, status = "resolved") {
     this.db

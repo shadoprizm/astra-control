@@ -1,11 +1,9 @@
 import { EventEmitter } from "node:events";
-import { randomUUID } from "node:crypto";
 import { Host } from "./hosts.js";
 import { Store } from "./store.js";
 import { taskKey, Config, Project, Task, WorkItem } from "./types.js";
 import {
   coordinate,
-  type CoordinatorAction,
   type CoordinatorExecution,
   type CoordinatorPlan,
 } from "./coordinator.js";
@@ -693,14 +691,7 @@ export class Engine extends EventEmitter {
     const t = this.task(key),
       h = this.host(t.hostId);
     return this.command(id, key, "archive", {}, async () => {
-      const approval = this.store
-        .actions()
-        .find(
-          (action) =>
-            action.task_key === key &&
-            action.kind === "approval" &&
-            ["open", "responding"].includes(action.status),
-        );
+      const approval = this.store.pendingApprovalForTask(key);
       if (approval)
         throw new Error(
           "Resolve the pending approval before archiving this task",
@@ -719,123 +710,17 @@ export class Engine extends EventEmitter {
       return { key, threadId: t.id, archived: true };
     });
   }
-  private async coordinatorAction(
-    action: CoordinatorAction,
-  ): Promise<{ summary: string; taskKey?: string }> {
-    if (action.type === "send") {
-      const task = this.task(action.taskKey!);
-      await this.send(randomUUID(), task.key, action.prompt!);
-      return {
-        summary: `Instruction accepted for ${task.title}.`,
-        taskKey: task.key,
-      };
-    }
-    if (action.type === "interrupt") {
-      const task = this.task(action.taskKey!);
-      await this.pause(randomUUID(), task.key);
-      return {
-        summary: `Interrupt accepted for ${task.title}.`,
-        taskKey: task.key,
-      };
-    }
-    if (action.type === "archive") {
-      const task = this.task(action.taskKey!);
-      await this.archive(randomUUID(), task.key);
-      return { summary: `Archived ${task.title}.`, taskKey: task.key };
-    }
-    if (action.type === "create") {
-      const result = await this.create(
-          randomUUID(),
-          action.hostId!,
-          action.projectId ?? null,
-          action.cwd!,
-          action.title!,
-          action.prompt!,
-          action.isolate !== false,
-        ),
-        key = result.result?.key;
-      return {
-        summary: `Started ${action.title}${result.result?.worktree?.branch ? ` in ${result.result.worktree.branch}` : ""}.`,
-        taskKey: key,
-      };
-    }
-    if (action.type === "watch") {
-      const task = this.task(action.taskKey!);
-      this.watch(task.key, action.value!);
-      return {
-        summary: `${action.value ? "Watching" : "Stopped watching"} ${task.title}.`,
-        taskKey: task.key,
-      };
-    }
-    if (action.type === "resolve") {
-      const current = this.store.actions(),
-        ids = action.actionIds!.filter((id) =>
-          current.some(
-            (record) =>
-              record.id === id &&
-              record.kind !== "approval" &&
-              record.status !== "resolved",
-          ),
-        );
-      if (ids.length) this.store.resolveMany(ids);
-      this.emit("change");
-      return {
-        summary: `Marked ${ids.length} inbox item${ids.length === 1 ? "" : "s"} handled.`,
-      };
-    }
-    if (action.type === "approval") {
-      const record = this.store
-        .actions()
-        .find((value) => value.id === action.actionId);
-      if (!record) throw new Error("Approval request no longer exists");
-      const decision =
-        action.decision === "answer"
-          ? {
-              answers: Object.fromEntries(
-                (action.answers || []).map((answer) => [
-                  answer.questionId,
-                  answer.answer,
-                ]),
-              ),
-            }
-          : { action: action.decision };
-      this.approval(record.id, decision);
-      return {
-        summary:
-          action.decision === "answer"
-            ? "Answered the agent question."
-            : `${action.decision === "accept" ? "Approved" : "Declined"} ${record.title}.`,
-        taskKey: record.task_key || undefined,
-      };
-    }
-    await this.refresh(true);
-    return { summary: "Workspace state refreshed." };
-  }
   async executeCoordinatorActions(plan: CoordinatorPlan) {
-    const executions: CoordinatorExecution[] = [];
-    for (const action of plan.actions) {
-      try {
-        const result = await this.coordinatorAction(action);
-        executions.push({
-          actionId: action.id,
-          type: action.type,
-          reason: action.reason,
-          status: "accepted",
-          summary: result.summary,
-          taskKey: result.taskKey,
-        });
-      } catch (error) {
-        executions.push({
-          actionId: action.id,
-          type: action.type,
-          reason: action.reason,
-          status: "failed",
-          summary: (error as Error).message,
-          taskKey: action.taskKey,
-        });
-      }
-    }
-    return executions;
+    return plan.actions.map(
+      (action): CoordinatorExecution => ({
+        actionId: action.id,
+        type: action.type,
+        reason: action.reason,
+        status: "proposed",
+        summary: "Proposal only — no workspace action was executed.",
+        taskKey: action.taskKey,
+      }),
+    );
   }
   async chat(message: string) {
     if (this.chatBusy)
@@ -938,7 +823,7 @@ export class Engine extends EventEmitter {
       return;
     }
     if (e.method === "serverRequest/resolved") {
-      for (const a of this.store.actions())
+      for (const a of this.store.pendingApprovals())
         if (
           a.kind === "approval" &&
           a.payload?.hostId === h.config.id &&
@@ -973,7 +858,7 @@ export class Engine extends EventEmitter {
       this.emit("change");
   }
   approval(id: string, decision: any) {
-    const a = this.store.actions().find((a) => a.id === id);
+    const a = this.store.actionById(id);
     if (!a || a.kind !== "approval" || a.status !== "open")
       throw new Error("This request is no longer pending");
     const p = a.payload,
