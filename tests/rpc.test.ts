@@ -39,6 +39,15 @@ test("a host can declare an additional version only after its own probe", () => 
   );
 });
 
+test("the App Server's ThreadHelm user-agent form is recognized", () => {
+  const version = "0.151.0-alpha.7.2",
+    result = assessCodexProtocol({
+      userAgent: `threadhelm/${version} (Ubuntu; x86_64) unknown (threadhelm; 0.3.1)`,
+    });
+  assert.equal(result.version, version);
+  assert.equal(result.compatible, true);
+});
+
 test("an incompatible runtime cannot receive an approval response", () => {
   const rpc = new Rpc({ id: "test", name: "Test", codex: "unused" });
   rpc.ready = true;

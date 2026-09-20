@@ -32,7 +32,10 @@ export function assessCodexProtocol(
 ): CodexProtocolAssessment {
   const userAgent =
       typeof initialize?.userAgent === "string" ? initialize.userAgent : "",
-    version = /Codex (?:Desktop|CLI)\/([^\s;(]+)/i.exec(userAgent)?.[1] || "";
+    version =
+      /(?:Codex (?:Desktop|CLI)|threadhelm)\/([^\s;(]+)/i.exec(
+        userAgent,
+      )?.[1] || "";
   if (!version)
     return {
       version: "unknown",
