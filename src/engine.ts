@@ -1,109 +1,1027 @@
-import {EventEmitter} from 'node:events';
-import {randomUUID} from 'node:crypto';
-import {Host} from './hosts.js';
-import {Store} from './store.js';
-import {taskKey,Config,Project,Task,WorkItem} from './types.js';
-import {coordinate,type CoordinatorAction,type CoordinatorExecution,type CoordinatorPlan} from './coordinator.js';
-import {boundDetailMessages,createAdapter,SourceAdapter} from './adapters.js';
-import {RuntimeMonitor} from './runtime.js';
-import {demoGit,demoWorkspace,seedDemoStore} from './demo.js';
+import { EventEmitter } from "node:events";
+import { randomUUID } from "node:crypto";
+import { Host } from "./hosts.js";
+import { Store } from "./store.js";
+import { taskKey, Config, Project, Task, WorkItem } from "./types.js";
+import {
+  coordinate,
+  type CoordinatorAction,
+  type CoordinatorExecution,
+  type CoordinatorPlan,
+} from "./coordinator.js";
+import {
+  boundDetailMessages,
+  createAdapter,
+  SourceAdapter,
+} from "./adapters.js";
+import { RuntimeMonitor } from "./runtime.js";
+import { demoGit, demoWorkspace, seedDemoStore } from "./demo.js";
 
-function checkoutName(path:string){const parts=path.replace(/[\\/]+$/,'').split(/[\\/]/);const last=parts.at(-1)||path;return last==='project'&&parts.length>1?parts.at(-2)!:last;}
+function checkoutName(path: string) {
+  const parts = path.replace(/[\\/]+$/, "").split(/[\\/]/);
+  const last = parts.at(-1) || path;
+  return last === "project" && parts.length > 1 ? parts.at(-2)! : last;
+}
 
 export class Engine extends EventEmitter {
- hosts:Host[]; adapters:SourceAdapter[]; runtime:RuntimeMonitor; timer?:NodeJS.Timeout; chatBusy=false; stopping=false; modelCatalogs:Record<string,any[]>={};private sourceRefreshes=new Map<string,Promise<void>>();private openClawLastRefresh=0;
- constructor(public config:Config,public store:Store,public root:string){super();this.hosts=config.hosts.map(c=>new Host(c,root));this.adapters=(config.sources||[]).filter(source=>source.enabled!==false).map(createAdapter);this.runtime=new RuntimeMonitor(config.runtime);store.recover();if(config.mode==='demo')seedDemoStore(store);for(const h of this.hosts){h.rpc.on('event',(e,g)=>this.event(h,e,g));h.rpc.on('disconnect',()=>{store.expireApprovals(h.config.id);this.emit('change');});}for(const adapter of this.adapters){adapter.on('invalidate',()=>{this.emit('invalidation',{sourceId:adapter.config.id,pages:['work','runtime']});if(adapter.config.adapter==='openclaw')setTimeout(()=>void this.refreshSource(adapter).then(()=>this.emit('invalidation',{sourceId:adapter.config.id,pages:['work','runtime','inbox']})).catch(()=>this.emit('invalidation',{sourceId:adapter.config.id,pages:['runtime']})),250).unref();});adapter.on('action',(event:any)=>{const workId=event.sessionKey?store.workForSession(adapter.config.id,event.sessionKey):null;store.action(event.kind,event.title,event.body,workId,`${adapter.config.id}:${event.eventId}`,{sourceId:adapter.config.id,sessionKey:event.sessionKey});this.emit('invalidation',{sourceId:adapter.config.id,pages:['inbox','runtime']});});}}
- host(id:string){const h=this.hosts.find(h=>h.config.id===id);if(!h)throw new Error('Unknown machine');return h;}
- task(key:string){const t=this.store.task(key);if(!t)throw new Error('Task not found');return t;}
-	private sourceStaleAfter(adapter:SourceAdapter){if(adapter.config.adapter==='openclaw')return Math.max(90000,(adapter.config.reconcileSeconds||60)*1500);return adapter.config.adapter==='hermes'?180000:45000;}
-	start(){if(this.config.mode==='demo'){this.emit('change');return;}void this.refresh(true);this.timer=setInterval(()=>void this.refresh(false),12000);}
-	async refresh(force=false){if(this.config.mode==='demo'){this.emit('change');return;}const now=Date.now(),sources=this.adapters.filter(adapter=>adapter.config.adapter!=='openclaw'||force||now-this.openClawLastRefresh>=60000);if(sources.some(adapter=>adapter.config.adapter==='openclaw'))this.openClawLastRefresh=now;await Promise.allSettled([...this.hosts.map(h=>this.refreshHost(h)),...sources.map(adapter=>this.refreshSource(adapter)),this.runtime.refresh()]);this.emit('change');}
-	async refreshSource(adapter:SourceAdapter){
-	 const existing=this.sourceRefreshes.get(adapter.config.id);if(existing)return existing;
-	 const job=(async()=>{try{
-	  const observations=await adapter.inventory(),seen:string[]=[],localModels=new Set(this.runtime.snapshot.catalog.filter(model=>model.locality==='local'&&model.provider!=='astra-router'&&!/smart router/i.test(String(model.id||''))).map(model=>String(model.id).toLowerCase()));
-	  for(const observation of observations){
-	   const execution=observation.item.execution,reportedModel=execution.resolvedModel||execution.requestedModel;
-	   if(execution.locality==='unknown'&&reportedModel&&localModels.has(reportedModel.toLowerCase()))observation.item.execution={...execution,locality:'local'};
-	   seen.push(observation.source.nativeId);
-	   const previous=this.store.sourceObservation(observation.source.adapter,observation.source.sourceId,observation.source.nativeId),workId=this.store.upsertSource(observation),work=this.store.workItem(workId),prefix=`state:${observation.source.adapter}:${observation.source.sourceId}:${observation.source.nativeId}:`,status=observation.item.status;
-	   if(status==='failed'||status==='waiting')this.store.reconcileStateAction(prefix,{kind:status==='failed'?'failure':'blocked',title:status==='failed'?'Source-reported failure':'Work is waiting for attention',body:observation.item.error||observation.item.latestExcerpt||(status==='failed'?'Open the source to inspect the failure.':'Open the source to inspect what is blocking progress.'),key:workId,fingerprint:`${prefix}${status}:${observation.item.updatedAt}`,payload:{sourceId:observation.source.sourceId,nativeId:observation.source.nativeId,status}});
-	   else this.store.reconcileStateAction(prefix,null);
-	   if(observation.eventKind&&observation.eventId)this.store.action(observation.eventKind,observation.eventKind==='approval'?'Approval needs attention':observation.eventKind==='completion'?'Background work completed':'Source reported a problem',observation.eventBody||observation.item.latestExcerpt||observation.item.title,workId,`${observation.source.sourceId}:${observation.eventId}`);
-	   if(work?.watched&&observation.item.kind!=='conversation'&&previous&&['active','recent','waiting'].includes(previous.item.status)&&['completed','idle'].includes(observation.item.status))this.store.action('completion','Watched background work completed',observation.item.latestExcerpt||'Review the latest result at its source.',workId,`completion:${observation.source.sourceId}:${observation.source.nativeId}:${observation.item.updatedAt}`);
-	  }
-	  this.store.pruneSource(adapter.config.id,seen);this.store.setCursor(adapter.config.id,String(Date.now()));this.modelCatalogs[adapter.config.id]=await adapter.modelCatalog();
-	 }finally{this.sourceRefreshes.delete(adapter.config.id);}})();
-	 this.sourceRefreshes.set(adapter.config.id,job);return job;
-	}
-	async refreshMachine(id:string){const h=this.host(id);await this.refreshHost(h,true);this.emit('change');return {online:h.online,lastSeen:h.lastSeen,error:h.error,runtimeConnected:h.rpc.ready,projectsError:h.projectsError,inventoryCount:h.inventoryCount};}
- async refreshHost(h:Host,forceProjects=false){if(h.polling||this.stopping)return;h.polling=true;try{const tasks=await h.snapshot();const missing=this.store.tasks().filter(t=>t.hostId===h.config.id&&t.watched&&!tasks.some(x=>x.id===t.id));for(const t of missing)tasks.push(...await h.snapshot(t.id));await h.refreshProjects(forceProjects);h.online=true;h.error='';h.lastSeen=Date.now();h.inventoryCount=tasks.length;for(const t of tasks)this.ingest(t);this.store.pruneSource(`codex-${h.config.id}`,tasks.map(task=>task.id));}catch(e){h.online=false;h.error=(e as Error).message;}finally{h.polling=false;}}
- ingest(t:Task){const previous=this.store.task(t.key);this.store.upsert(t);const prefix=`state:codex:codex-${t.hostId}:${t.id}:`,waiting=t.turnStatus==='interrupted'||t.status==='paused'||t.turnStatus==='inProgress'&&t.status!=='running',failed=t.turnStatus==='failed'||t.status==='failed';if(failed||waiting)this.store.reconcileStateAction(prefix,{kind:failed?'failure':'blocked',title:failed?'Task needs attention':t.turnStatus==='interrupted'?'Task was interrupted':'Task has no active writer',body:t.error||t.latest?.text?.slice(0,2000)||(failed?'Open the task to inspect the failure.':'Open the task to inspect or resume it.'),key:t.key,fingerprint:`${prefix}${failed?'failed':'waiting'}:${t.turnId||t.updatedAt}`,payload:{hostId:t.hostId,threadId:t.id,turnId:t.turnId,status:t.turnStatus||t.status}});else this.store.reconcileStateAction(prefix,null);if(previous?.watched && t.turnId && t.turnStatus && (previous.turnId!==t.turnId||previous.turnStatus!==t.turnStatus)){
- if(t.turnStatus==='completed')this.store.action('completion','Agent finished a turn',t.latest?.text?.slice(0,5000)||'Review the result and decide what comes next.',t.key,`completion:${t.key}:${t.turnId}`);
- if(t.turnStatus==='failed'||t.turnStatus==='interrupted')this.store.action('failure',t.turnStatus==='failed'?'Task needs attention':'Task paused',t.error||t.latest?.text?.slice(0,2000)||'Open the task to inspect its latest state.',t.key,`failure:${t.key}:${t.turnId}:${t.turnStatus}`);
- }}
- projects(){if(this.config.mode==='demo')return demoWorkspace().projects;const tasks=this.store.tasks(),result:Project[]=[];for(const h of this.hosts){const hostTasks=tasks.filter(t=>t.hostId===h.config.id),claimed=new Set<string>();for(const project of h.projects){const roots=[...new Set([...project.roots,...hostTasks.filter(t=>t.projectId===project.id).map(t=>t.cwd)])];roots.forEach(root=>claimed.add(root));result.push({...project,roots});}for(const cwd of [...new Set(hostTasks.map(t=>t.cwd))])if(!claimed.has(cwd))result.push({id:null,hostId:h.config.id,name:checkoutName(cwd),roots:[cwd],source:'history'});}return result;}
- state(){const actions=this.store.actions(),inboxItems=[...new Set(actions.filter(action=>action.status!=='resolved'&&action.task_key).map(action=>String(action.task_key)))].flatMap(id=>{const item=this.store.workItem(id);return item?[this.withAvailability(item)]:[]}),providerSummary=this.store.workProviders(),demo=this.config.mode==='demo'?demoWorkspace():null,runtime={...(demo?.runtime||this.runtime.snapshot),providers:[...new Set([...(demo?.runtime.providers||this.runtime.snapshot.providers),...providerSummary.map(row=>row.provider)])],providerSummary};return {summary:this.store.workSummary(),projects:demo?.projects||this.projects(),hosts:demo?.hosts||this.hosts.map(h=>({id:h.config.id,name:h.config.name,online:h.online,lastSeen:h.lastSeen,error:h.error,runtimeConnected:h.rpc.ready,projectsError:h.projectsError,inventoryCount:h.inventoryCount})),sources:demo?.sources||this.adapters.map(adapter=>({...adapter.health,stale:adapter.health.lastSeen===0||Date.now()-adapter.health.lastSeen>this.sourceStaleAfter(adapter),models:this.modelCatalogs[adapter.config.id]||[]})),runtime,inboxItems,actions,commands:this.store.commands(),chat:this.store.chat(),chatBusy:this.chatBusy,now:Date.now(),...(demo?{demo:demo.demo}:{})};}
- workItems(query:any={}){const result=this.store.workItems(query);return {...result,items:result.items.map(item=>this.withAvailability(item))};}
- private withAvailability(item:WorkItem){if(this.config.mode==='demo')return item;const external=item.sourceRefs.filter(source=>source.adapter!=='codex'),codex=item.sourceRefs.filter(source=>source.adapter==='codex'),available=codex.some(source=>this.hosts.find(host=>host.config.id===source.hostId)?.online)||external.some(source=>{const adapter=this.adapters.find(adapter=>adapter.config.id===source.sourceId),health=adapter?.health;return !!adapter&&!!health?.lastSeen&&Date.now()-health.lastSeen<=this.sourceStaleAfter(adapter);});return available?item:{...item,status:'offline' as const};}
- watch(key:string,value:boolean){const work=this.store.workItem(key);if(!work)throw new Error('Work item not found');this.store.watch(key,value);const t=this.store.task(key);if(value&&t?.turnStatus==='completed')this.store.action('review','Review latest result',t.latest?.text?.slice(0,5000)||'This task has a completed turn. Review its outcome.',key,`watch:${key}:${t.turnId}`);this.emit('change');}
- async detail(key:string){const work=this.store.workItem(key);if(!work)throw new Error('Work item not found');if(this.config.mode==='demo')return {task:work,messages:boundDetailMessages(work.messages),git:demoGit(key)};const codex=work.sourceRefs.find(source=>source.adapter==='codex');if(codex){const t=this.task(key),h=this.host(t.hostId),tasks=await h.snapshot(t.id);if(!tasks[0])throw new Error('Task is no longer available on its machine');this.ingest(tasks[0]);const git=await h.git(t.id);return {task:this.withAvailability(this.store.workItem(key)!),messages:boundDetailMessages(tasks[0].messages),git};}const source=work.sourceRefs[0],adapter=this.adapters.find(value=>value.config.id===source.sourceId);if(!adapter)throw new Error('Source connector is not configured');const detail=await adapter.detail(source.nativeId,source);return {task:this.withAvailability(work),messages:boundDetailMessages(detail.messages),git:{available:false,error:'Repository state is managed by the source system.'}};}
- async command(id:string,key:string,kind:string,body:any,run:()=>Promise<any>){const prior=this.store.command(id);if(prior){if(prior.task_key!==key||prior.kind!==kind||prior.body!==JSON.stringify(body))throw new Error('Request ID was reused with a different action');return {status:prior.status,result:prior.result?JSON.parse(prior.result):null};}
- this.store.beginCommand(id,key,kind,body);try{const result=await run();this.store.finishCommand(id,'accepted',result);this.emit('change');return {status:'accepted',result};}catch(e){const text=(e as Error).message;const status=/timed out|connection closed/i.test(text)?'uncertain':'failed';this.store.finishCommand(id,status,{error:text});this.store.action('delivery','Instruction needs attention',text,key||null,`delivery:${id}`);this.emit('change');throw e;}}
- async send(id:string,key:string,prompt:string){const t=this.task(key),h=this.host(t.hostId);return this.command(id,key,'message',{prompt},async()=>{
- const current=(await h.snapshot(t.id))[0];if(!current)throw new Error('Task not found on its machine');
- if(!t.managed){if(current.owned)throw new Error('This task is controlled by the Codex desktop app. Open it in Codex, or start a dashboard task in the same repo. The message was not sent.');await h.rpc.call('thread/resume',{threadId:t.id});this.store.manage(key);}
- else {await h.rpc.call('thread/resume',{threadId:t.id});}
- const thread=await h.rpc.call('thread/read',{threadId:t.id,includeTurns:true});
- const active=thread.thread?.turns?.findLast((v:any)=>v.status==='inProgress');
- if(active)return h.rpc.call('turn/steer',{threadId:t.id,expectedTurnId:active.id,input:[{type:'text',text:prompt}]});
- return h.rpc.call('turn/start',{threadId:t.id,input:[{type:'text',text:prompt}]});
- });}
-	async create(id:string,hostId:string,projectId:string|null,cwd:string,title:string,prompt:string,isolate=false){const h=this.host(hostId),tasks=this.store.tasks().filter(t=>t.hostId===hostId);const project=projectId?h.projects.find(p=>p.id===projectId):undefined;const roots=project?[...new Set([...project.roots,...tasks.filter(t=>t.projectId===projectId).map(t=>t.cwd)])]:[];if(projectId&&!project)throw new Error('Choose a saved project on this machine');if(project&&!roots.includes(cwd))throw new Error('Choose a working directory from the selected project');if(!projectId&&!tasks.some(t=>t.cwd===cwd))throw new Error('Choose a project or checkout already observed on this machine');return this.command(id,'','create',{hostId,projectId,cwd,title,prompt,isolate},async()=>{
-	const worktree=isolate?await h.worktree(cwd,title):null,runCwd=worktree?.cwd||cwd;
-	const params:any={cwd:runCwd,approvalPolicy:'on-request',sandbox:'workspace-write'};if(projectId)params.projectId=projectId;
-	const r=await h.rpc.call('thread/start',params);
-	const tid=r.thread.id,key=taskKey(hostId,tid);this.store.upsert({key,id:tid,hostId,title,cwd:runCwd,...(projectId?{projectId}:{}),...(worktree?.branch?{branch:worktree.branch}:{}),observedAt:Date.now(),updatedAt:Date.now(),status:'idle',owned:true,messages:[]});this.store.manage(key);
-	await h.rpc.call('thread/name/set',{threadId:tid,name:title});
-	const turn=await h.rpc.call('turn/start',{threadId:tid,input:[{type:'text',text:prompt}]});this.emit('change');return {key,threadId:tid,turnId:turn.turn.id,worktree};
-	});}
- async pause(id:string,key:string){const t=this.task(key),h=this.host(t.hostId);if(!t.managed)throw new Error('Open this desktop-owned task in Codex to pause it');return this.command(id,key,'pause',{},async()=>{const r=await h.rpc.call('thread/read',{threadId:t.id,includeTurns:true});const active=r.thread?.turns?.findLast((x:any)=>x.status==='inProgress');if(!active)throw new Error('No active turn to pause');return h.rpc.call('turn/interrupt',{threadId:t.id,turnId:active.id});});}
- async archive(id:string,key:string){const t=this.task(key),h=this.host(t.hostId);return this.command(id,key,'archive',{},async()=>{
-  const approval=this.store.actions().find(action=>action.task_key===key&&action.kind==='approval'&&['open','responding'].includes(action.status));if(approval)throw new Error('Resolve the pending approval before archiving this task');
-  const current=await h.rpc.call('thread/read',{threadId:t.id,includeTurns:true}),active=current.thread?.turns?.findLast((turn:any)=>turn.status==='inProgress');if(active)throw new Error('Interrupt the active turn before archiving this task');
-  await h.rpc.call('thread/archive',{threadId:t.id});this.store.removeTask(key);return {key,threadId:t.id,archived:true};
- });}
- private async coordinatorAction(action:CoordinatorAction):Promise<{summary:string;taskKey?:string}>{
-  if(action.type==='send'){const task=this.task(action.taskKey!);await this.send(randomUUID(),task.key,action.prompt!);return {summary:`Instruction accepted for ${task.title}.`,taskKey:task.key};}
-  if(action.type==='interrupt'){const task=this.task(action.taskKey!);await this.pause(randomUUID(),task.key);return {summary:`Interrupt accepted for ${task.title}.`,taskKey:task.key};}
-  if(action.type==='archive'){const task=this.task(action.taskKey!);await this.archive(randomUUID(),task.key);return {summary:`Archived ${task.title}.`,taskKey:task.key};}
-  if(action.type==='create'){const result=await this.create(randomUUID(),action.hostId!,action.projectId??null,action.cwd!,action.title!,action.prompt!,action.isolate!==false),key=result.result?.key;return {summary:`Started ${action.title}${result.result?.worktree?.branch?` in ${result.result.worktree.branch}`:''}.`,taskKey:key};}
-  if(action.type==='watch'){const task=this.task(action.taskKey!);this.watch(task.key,action.value!);return {summary:`${action.value?'Watching':'Stopped watching'} ${task.title}.`,taskKey:task.key};}
-  if(action.type==='resolve'){const current=this.store.actions(),ids=action.actionIds!.filter(id=>current.some(record=>record.id===id&&record.kind!=='approval'&&record.status!=='resolved'));if(ids.length)this.store.resolveMany(ids);this.emit('change');return {summary:`Marked ${ids.length} inbox item${ids.length===1?'':'s'} handled.`};}
-  if(action.type==='approval'){const record=this.store.actions().find(value=>value.id===action.actionId);if(!record)throw new Error('Approval request no longer exists');const decision=action.decision==='answer'?{answers:Object.fromEntries((action.answers||[]).map(answer=>[answer.questionId,answer.answer]))}:{action:action.decision};this.approval(record.id,decision);return {summary:action.decision==='answer'?'Answered the agent question.':`${action.decision==='accept'?'Approved':'Declined'} ${record.title}.`,taskKey:record.task_key||undefined};}
-  await this.refresh(true);return {summary:'Workspace state refreshed.'};
- }
- async executeCoordinatorActions(plan:CoordinatorPlan){const executions:CoordinatorExecution[]=[];for(const action of plan.actions){try{const result=await this.coordinatorAction(action);executions.push({actionId:action.id,type:action.type,reason:action.reason,status:'accepted',summary:result.summary,taskKey:result.taskKey});}catch(error){executions.push({actionId:action.id,type:action.type,reason:action.reason,status:'failed',summary:(error as Error).message,taskKey:action.taskKey});}}return executions;}
- async chat(message:string){if(this.chatBusy)throw new Error('The coordinator is answering your previous message');this.chatBusy=true;this.store.addChat('user',{answer:message});this.emit('change');try{const local=this.hosts.find(host=>!host.config.ssh);if(!local)throw new Error('A local Codex runtime is required');const tasks=this.store.tasks().filter(task=>this.store.workItem(task.key));const result=await coordinate(local.config.codex,this.root,message,{tasks,projects:this.projects(),hosts:this.config.hosts,history:this.store.chat(),inboxActions:this.store.actions()},this.config.coordinator);result.executions=await this.executeCoordinatorActions(result);this.store.addChat('assistant',result);return result;}catch(error){this.store.addChat('assistant',{answer:`Coordinator unavailable: ${(error as Error).message}`,actions:[],executions:[]});throw error;}finally{this.chatBusy=false;this.emit('change');}}
- event(h:Host,e:any,generation:string){const p=e.params||{},tid=p.threadId||p.thread?.id;const key=tid?taskKey(h.config.id,tid):null;
- if(e.method==='project/changed'){void h.refreshProjects(true).finally(()=>this.emit('change'));return;}
- if((e.method==='thread/archived'||e.method==='thread/deleted')&&key){this.store.removeTask(key);this.emit('change');return;}
- if(e.id!=null&&e.method){
-  const supported=['item/commandExecution/requestApproval','item/fileChange/requestApproval','item/permissions/requestApproval','item/tool/requestUserInput','mcpServer/elicitation/request'];
-  if(!supported.includes(e.method)){try{h.rpc.write({id:e.id,error:{code:-32601,message:'ThreadHelm does not support this interactive request. Open the task in Codex.'}});}catch{}return;}
-  this.store.action('approval',e.method.includes('requestUserInput')?'Agent has a question':e.method.includes('fileChange')?'Review file access':e.method.includes('commandExecution')?'Review command':'Permission or input needed',p.reason||p.command||p.message||'Review the request below.',key,`approval:${h.config.id}:${generation}:${JSON.stringify(e.id)}`,{hostId:h.config.id,generation,requestId:e.id,method:e.method,params:p});this.emit('change');return;
- }
- if(e.method==='serverRequest/resolved'){for(const a of this.store.actions())if(a.kind==='approval'&&a.payload?.hostId===h.config.id&&JSON.stringify(a.payload.requestId)===JSON.stringify(p.requestId)&&a.payload.generation===generation)this.store.resolve(a.id);}
- if(e.method==='turn/completed'&&key){const turn=p.turn||{};this.store.action(turn.status==='failed'?'failure':'completion',turn.status==='failed'?'Task needs attention':'Agent finished a turn',turn.error?.message||'Review the latest response and changes.',key,`${turn.status==='failed'?'failure':'completion'}:${key}:${turn.id}${turn.status==='failed'?':failed':''}`);void this.refreshHost(h);}
- if(e.method==='thread/project/updated')void this.refreshHost(h);
- if(['turn/started','turn/completed','thread/status/changed','thread/project/updated','serverRequest/resolved'].includes(e.method))this.emit('change');
- }
- approval(id:string,decision:any){const a=this.store.actions().find(a=>a.id===id);if(!a||a.kind!=='approval'||a.status!=='open')throw new Error('This request is no longer pending');const p=a.payload,h=this.host(p.hostId);let response:any;
- if(p.method==='item/commandExecution/requestApproval'||p.method==='item/fileChange/requestApproval'){if(!['accept','decline','cancel'].includes(decision.action))throw new Error('Invalid decision');const offered=p.params.availableDecisions;if(Array.isArray(offered)&&!offered.includes(decision.action))throw new Error('This decision is not available for the request');response={decision:decision.action};}
- else if(p.method==='item/tool/requestUserInput'){const questions=p.params.questions||[];const answers:any={};for(const q of questions){const value=decision.answers?.[q.id];if(typeof value!=='string'||!value.trim())throw new Error('Answer every question');answers[q.id]={answers:[value]};}response={answers};}
- else if(p.method==='item/permissions/requestApproval'){if(!['accept','decline'].includes(decision.action))throw new Error('Invalid decision');response={permissions:decision.action==='accept'?p.params.permissions:{},scope:'turn'};}
- else {if(decision.action!=='decline'&&decision.action!=='cancel')throw new Error('This connector request must be completed in Codex; it can only be declined here');response={action:decision.action,content:null};}
- h.rpc.respond(p.requestId,response,p.generation);this.store.resolve(id,'responding');this.emit('change');return {status:'responding'};
- }
- close(){this.stopping=true;if(this.timer)clearInterval(this.timer);for(const h of this.hosts)h.rpc.close();for(const adapter of this.adapters)adapter.close();}
+  hosts: Host[];
+  adapters: SourceAdapter[];
+  runtime: RuntimeMonitor;
+  timer?: NodeJS.Timeout;
+  chatBusy = false;
+  stopping = false;
+  modelCatalogs: Record<string, any[]> = {};
+  private sourceRefreshes = new Map<string, Promise<void>>();
+  private openClawLastRefresh = 0;
+  constructor(
+    public config: Config,
+    public store: Store,
+    public root: string,
+  ) {
+    super();
+    this.hosts = config.hosts.map((c) => new Host(c, root));
+    this.adapters = (config.sources || [])
+      .filter((source) => source.enabled !== false)
+      .map(createAdapter);
+    this.runtime = new RuntimeMonitor(config.runtime);
+    store.recover();
+    if (config.mode === "demo") seedDemoStore(store);
+    for (const h of this.hosts) {
+      h.rpc.on("event", (e, g) => this.event(h, e, g));
+      h.rpc.on("disconnect", () => {
+        store.expireApprovals(h.config.id);
+        this.emit("change");
+      });
+    }
+    for (const adapter of this.adapters) {
+      adapter.on("invalidate", () => {
+        this.emit("invalidation", {
+          sourceId: adapter.config.id,
+          pages: ["work", "runtime"],
+        });
+        if (adapter.config.adapter === "openclaw")
+          setTimeout(
+            () =>
+              void this.refreshSource(adapter)
+                .then(() =>
+                  this.emit("invalidation", {
+                    sourceId: adapter.config.id,
+                    pages: ["work", "runtime", "inbox"],
+                  }),
+                )
+                .catch(() =>
+                  this.emit("invalidation", {
+                    sourceId: adapter.config.id,
+                    pages: ["runtime"],
+                  }),
+                ),
+            250,
+          ).unref();
+      });
+      adapter.on("action", (event: any) => {
+        const workId = event.sessionKey
+          ? store.workForSession(adapter.config.id, event.sessionKey)
+          : null;
+        store.action(
+          event.kind,
+          event.title,
+          event.body,
+          workId,
+          `${adapter.config.id}:${event.eventId}`,
+          { sourceId: adapter.config.id, sessionKey: event.sessionKey },
+        );
+        this.emit("invalidation", {
+          sourceId: adapter.config.id,
+          pages: ["inbox", "runtime"],
+        });
+      });
+    }
+  }
+  host(id: string) {
+    const h = this.hosts.find((h) => h.config.id === id);
+    if (!h) throw new Error("Unknown machine");
+    return h;
+  }
+  task(key: string) {
+    const t = this.store.task(key);
+    if (!t) throw new Error("Task not found");
+    return t;
+  }
+  private sourceStaleAfter(adapter: SourceAdapter) {
+    if (adapter.config.adapter === "openclaw")
+      return Math.max(90000, (adapter.config.reconcileSeconds || 60) * 1500);
+    return adapter.config.adapter === "hermes" ? 180000 : 45000;
+  }
+  start() {
+    if (this.config.mode === "demo") {
+      this.emit("change");
+      return;
+    }
+    void this.refresh(true);
+    this.timer = setInterval(() => void this.refresh(false), 12000);
+  }
+  async refresh(force = false) {
+    if (this.config.mode === "demo") {
+      this.emit("change");
+      return;
+    }
+    const now = Date.now(),
+      sources = this.adapters.filter(
+        (adapter) =>
+          adapter.config.adapter !== "openclaw" ||
+          force ||
+          now - this.openClawLastRefresh >= 60000,
+      );
+    if (sources.some((adapter) => adapter.config.adapter === "openclaw"))
+      this.openClawLastRefresh = now;
+    await Promise.allSettled([
+      ...this.hosts.map((h) => this.refreshHost(h)),
+      ...sources.map((adapter) => this.refreshSource(adapter)),
+      this.runtime.refresh(),
+    ]);
+    this.emit("change");
+  }
+  async refreshSource(adapter: SourceAdapter) {
+    const existing = this.sourceRefreshes.get(adapter.config.id);
+    if (existing) return existing;
+    const job = (async () => {
+      try {
+        const observations = await adapter.inventory(),
+          seen: string[] = [],
+          localModels = new Set(
+            this.runtime.snapshot.catalog
+              .filter(
+                (model) =>
+                  model.locality === "local" &&
+                  model.provider !== "astra-router" &&
+                  !/smart router/i.test(String(model.id || "")),
+              )
+              .map((model) => String(model.id).toLowerCase()),
+          );
+        for (const observation of observations) {
+          const execution = observation.item.execution,
+            reportedModel = execution.resolvedModel || execution.requestedModel;
+          if (
+            execution.locality === "unknown" &&
+            reportedModel &&
+            localModels.has(reportedModel.toLowerCase())
+          )
+            observation.item.execution = { ...execution, locality: "local" };
+          seen.push(observation.source.nativeId);
+          const previous = this.store.sourceObservation(
+              observation.source.adapter,
+              observation.source.sourceId,
+              observation.source.nativeId,
+            ),
+            workId = this.store.upsertSource(observation),
+            work = this.store.workItem(workId),
+            prefix = `state:${observation.source.adapter}:${observation.source.sourceId}:${observation.source.nativeId}:`,
+            status = observation.item.status;
+          if (status === "failed" || status === "waiting")
+            this.store.reconcileStateAction(prefix, {
+              kind: status === "failed" ? "failure" : "blocked",
+              title:
+                status === "failed"
+                  ? "Source-reported failure"
+                  : "Work is waiting for attention",
+              body:
+                observation.item.error ||
+                observation.item.latestExcerpt ||
+                (status === "failed"
+                  ? "Open the source to inspect the failure."
+                  : "Open the source to inspect what is blocking progress."),
+              key: workId,
+              fingerprint: `${prefix}${status}:${observation.item.updatedAt}`,
+              payload: {
+                sourceId: observation.source.sourceId,
+                nativeId: observation.source.nativeId,
+                status,
+              },
+            });
+          else this.store.reconcileStateAction(prefix, null);
+          if (observation.eventKind && observation.eventId)
+            this.store.action(
+              observation.eventKind,
+              observation.eventKind === "approval"
+                ? "Approval needs attention"
+                : observation.eventKind === "completion"
+                  ? "Background work completed"
+                  : "Source reported a problem",
+              observation.eventBody ||
+                observation.item.latestExcerpt ||
+                observation.item.title,
+              workId,
+              `${observation.source.sourceId}:${observation.eventId}`,
+            );
+          if (
+            work?.watched &&
+            observation.item.kind !== "conversation" &&
+            previous &&
+            ["active", "recent", "waiting"].includes(previous.item.status) &&
+            ["completed", "idle"].includes(observation.item.status)
+          )
+            this.store.action(
+              "completion",
+              "Watched background work completed",
+              observation.item.latestExcerpt ||
+                "Review the latest result at its source.",
+              workId,
+              `completion:${observation.source.sourceId}:${observation.source.nativeId}:${observation.item.updatedAt}`,
+            );
+        }
+        this.store.pruneSource(adapter.config.id, seen);
+        this.store.setCursor(adapter.config.id, String(Date.now()));
+        this.modelCatalogs[adapter.config.id] = await adapter.modelCatalog();
+      } finally {
+        this.sourceRefreshes.delete(adapter.config.id);
+      }
+    })();
+    this.sourceRefreshes.set(adapter.config.id, job);
+    return job;
+  }
+  async refreshMachine(id: string) {
+    const h = this.host(id);
+    await this.refreshHost(h, true);
+    this.emit("change");
+    return {
+      online: h.online,
+      lastSeen: h.lastSeen,
+      error: h.error,
+      runtimeConnected: h.rpc.ready,
+      projectsError: h.projectsError,
+      inventoryCount: h.inventoryCount,
+    };
+  }
+  async refreshHost(h: Host, forceProjects = false) {
+    if (h.polling || this.stopping) return;
+    h.polling = true;
+    try {
+      const tasks = await h.snapshot();
+      const missing = this.store
+        .tasks()
+        .filter(
+          (t) =>
+            t.hostId === h.config.id &&
+            t.watched &&
+            !tasks.some((x) => x.id === t.id),
+        );
+      for (const t of missing) tasks.push(...(await h.snapshot(t.id)));
+      await h.refreshProjects(forceProjects);
+      h.online = true;
+      h.error = "";
+      h.lastSeen = Date.now();
+      h.inventoryCount = tasks.length;
+      for (const t of tasks) this.ingest(t);
+      this.store.pruneSource(
+        `codex-${h.config.id}`,
+        tasks.map((task) => task.id),
+      );
+    } catch (e) {
+      h.online = false;
+      h.error = (e as Error).message;
+    } finally {
+      h.polling = false;
+    }
+  }
+  ingest(t: Task) {
+    const previous = this.store.task(t.key);
+    this.store.upsert(t);
+    const prefix = `state:codex:codex-${t.hostId}:${t.id}:`,
+      waiting =
+        t.turnStatus === "interrupted" ||
+        t.status === "paused" ||
+        (t.turnStatus === "inProgress" && t.status !== "running"),
+      failed = t.turnStatus === "failed" || t.status === "failed";
+    if (failed || waiting)
+      this.store.reconcileStateAction(prefix, {
+        kind: failed ? "failure" : "blocked",
+        title: failed
+          ? "Task needs attention"
+          : t.turnStatus === "interrupted"
+            ? "Task was interrupted"
+            : "Task has no active writer",
+        body:
+          t.error ||
+          t.latest?.text?.slice(0, 2000) ||
+          (failed
+            ? "Open the task to inspect the failure."
+            : "Open the task to inspect or resume it."),
+        key: t.key,
+        fingerprint: `${prefix}${failed ? "failed" : "waiting"}:${t.turnId || t.updatedAt}`,
+        payload: {
+          hostId: t.hostId,
+          threadId: t.id,
+          turnId: t.turnId,
+          status: t.turnStatus || t.status,
+        },
+      });
+    else this.store.reconcileStateAction(prefix, null);
+    if (
+      previous?.watched &&
+      t.turnId &&
+      t.turnStatus &&
+      (previous.turnId !== t.turnId || previous.turnStatus !== t.turnStatus)
+    ) {
+      if (t.turnStatus === "completed")
+        this.store.action(
+          "completion",
+          "Agent finished a turn",
+          t.latest?.text?.slice(0, 5000) ||
+            "Review the result and decide what comes next.",
+          t.key,
+          `completion:${t.key}:${t.turnId}`,
+        );
+      if (t.turnStatus === "failed" || t.turnStatus === "interrupted")
+        this.store.action(
+          "failure",
+          t.turnStatus === "failed" ? "Task needs attention" : "Task paused",
+          t.error ||
+            t.latest?.text?.slice(0, 2000) ||
+            "Open the task to inspect its latest state.",
+          t.key,
+          `failure:${t.key}:${t.turnId}:${t.turnStatus}`,
+        );
+    }
+  }
+  projects() {
+    if (this.config.mode === "demo") return demoWorkspace().projects;
+    const tasks = this.store.tasks(),
+      result: Project[] = [];
+    for (const h of this.hosts) {
+      const hostTasks = tasks.filter((t) => t.hostId === h.config.id),
+        claimed = new Set<string>();
+      for (const project of h.projects) {
+        const roots = [
+          ...new Set([
+            ...project.roots,
+            ...hostTasks
+              .filter((t) => t.projectId === project.id)
+              .map((t) => t.cwd),
+          ]),
+        ];
+        roots.forEach((root) => claimed.add(root));
+        result.push({ ...project, roots });
+      }
+      for (const cwd of [...new Set(hostTasks.map((t) => t.cwd))])
+        if (!claimed.has(cwd))
+          result.push({
+            id: null,
+            hostId: h.config.id,
+            name: checkoutName(cwd),
+            roots: [cwd],
+            source: "history",
+          });
+    }
+    return result;
+  }
+  state() {
+    const actions = this.store.actions(),
+      inboxItems = [
+        ...new Set(
+          actions
+            .filter((action) => action.status !== "resolved" && action.task_key)
+            .map((action) => String(action.task_key)),
+        ),
+      ].flatMap((id) => {
+        const item = this.store.workItem(id);
+        return item ? [this.withAvailability(item)] : [];
+      }),
+      providerSummary = this.store.workProviders(),
+      demo = this.config.mode === "demo" ? demoWorkspace() : null,
+      runtime = {
+        ...(demo?.runtime || this.runtime.snapshot),
+        providers: [
+          ...new Set([
+            ...(demo?.runtime.providers || this.runtime.snapshot.providers),
+            ...providerSummary.map((row) => row.provider),
+          ]),
+        ],
+        providerSummary,
+      };
+    return {
+      summary: this.store.workSummary(),
+      projects: demo?.projects || this.projects(),
+      hosts:
+        demo?.hosts ||
+        this.hosts.map((h) => ({
+          id: h.config.id,
+          name: h.config.name,
+          online: h.online,
+          lastSeen: h.lastSeen,
+          error: h.error,
+          runtimeConnected: h.rpc.ready,
+          projectsError: h.projectsError,
+          inventoryCount: h.inventoryCount,
+        })),
+      sources:
+        demo?.sources ||
+        this.adapters.map((adapter) => ({
+          ...adapter.health,
+          stale:
+            adapter.health.lastSeen === 0 ||
+            Date.now() - adapter.health.lastSeen >
+              this.sourceStaleAfter(adapter),
+          models: this.modelCatalogs[adapter.config.id] || [],
+        })),
+      runtime,
+      inboxItems,
+      actions,
+      commands: this.store.commands(),
+      chat: this.store.chat(),
+      chatBusy: this.chatBusy,
+      now: Date.now(),
+      ...(demo ? { demo: demo.demo } : {}),
+    };
+  }
+  workItems(query: any = {}) {
+    const result = this.store.workItems(query);
+    return {
+      ...result,
+      items: result.items.map((item) => this.withAvailability(item)),
+    };
+  }
+  private withAvailability(item: WorkItem) {
+    if (this.config.mode === "demo") return item;
+    const external = item.sourceRefs.filter(
+        (source) => source.adapter !== "codex",
+      ),
+      codex = item.sourceRefs.filter((source) => source.adapter === "codex"),
+      available =
+        codex.some(
+          (source) =>
+            this.hosts.find((host) => host.config.id === source.hostId)?.online,
+        ) ||
+        external.some((source) => {
+          const adapter = this.adapters.find(
+              (adapter) => adapter.config.id === source.sourceId,
+            ),
+            health = adapter?.health;
+          return (
+            !!adapter &&
+            !!health?.lastSeen &&
+            Date.now() - health.lastSeen <= this.sourceStaleAfter(adapter)
+          );
+        });
+    return available ? item : { ...item, status: "offline" as const };
+  }
+  watch(key: string, value: boolean) {
+    const work = this.store.workItem(key);
+    if (!work) throw new Error("Work item not found");
+    this.store.watch(key, value);
+    const t = this.store.task(key);
+    if (value && t?.turnStatus === "completed")
+      this.store.action(
+        "review",
+        "Review latest result",
+        t.latest?.text?.slice(0, 5000) ||
+          "This task has a completed turn. Review its outcome.",
+        key,
+        `watch:${key}:${t.turnId}`,
+      );
+    this.emit("change");
+  }
+  async detail(key: string) {
+    const work = this.store.workItem(key);
+    if (!work) throw new Error("Work item not found");
+    if (this.config.mode === "demo")
+      return {
+        task: work,
+        messages: boundDetailMessages(work.messages),
+        git: demoGit(key),
+      };
+    const codex = work.sourceRefs.find((source) => source.adapter === "codex");
+    if (codex) {
+      const t = this.task(key),
+        h = this.host(t.hostId),
+        tasks = await h.snapshot(t.id);
+      if (!tasks[0])
+        throw new Error("Task is no longer available on its machine");
+      this.ingest(tasks[0]);
+      const git = await h.git(t.id);
+      return {
+        task: this.withAvailability(this.store.workItem(key)!),
+        messages: boundDetailMessages(tasks[0].messages),
+        git,
+      };
+    }
+    const source = work.sourceRefs[0],
+      adapter = this.adapters.find(
+        (value) => value.config.id === source.sourceId,
+      );
+    if (!adapter) throw new Error("Source connector is not configured");
+    const detail = await adapter.detail(source.nativeId, source);
+    return {
+      task: this.withAvailability(work),
+      messages: boundDetailMessages(detail.messages),
+      git: {
+        available: false,
+        error: "Repository state is managed by the source system.",
+      },
+    };
+  }
+  async command(
+    id: string,
+    key: string,
+    kind: string,
+    body: any,
+    run: () => Promise<any>,
+  ) {
+    const prior = this.store.command(id);
+    if (prior) {
+      if (
+        prior.task_key !== key ||
+        prior.kind !== kind ||
+        prior.body !== JSON.stringify(body)
+      )
+        throw new Error("Request ID was reused with a different action");
+      return {
+        status: prior.status,
+        result: prior.result ? JSON.parse(prior.result) : null,
+      };
+    }
+    this.store.beginCommand(id, key, kind, body);
+    try {
+      const result = await run();
+      this.store.finishCommand(id, "accepted", result);
+      this.emit("change");
+      return { status: "accepted", result };
+    } catch (e) {
+      const text = (e as Error).message;
+      const status = /timed out|connection closed/i.test(text)
+        ? "uncertain"
+        : "failed";
+      this.store.finishCommand(id, status, { error: text });
+      this.store.action(
+        "delivery",
+        "Instruction needs attention",
+        text,
+        key || null,
+        `delivery:${id}`,
+      );
+      this.emit("change");
+      throw e;
+    }
+  }
+  async send(id: string, key: string, prompt: string) {
+    const t = this.task(key),
+      h = this.host(t.hostId);
+    return this.command(id, key, "message", { prompt }, async () => {
+      const current = (await h.snapshot(t.id))[0];
+      if (!current) throw new Error("Task not found on its machine");
+      if (!t.managed) {
+        if (current.owned)
+          throw new Error(
+            "This task is controlled by the Codex desktop app. Open it in Codex, or start a dashboard task in the same repo. The message was not sent.",
+          );
+        await h.rpc.call("thread/resume", { threadId: t.id });
+        this.store.manage(key);
+      } else {
+        await h.rpc.call("thread/resume", { threadId: t.id });
+      }
+      const thread = await h.rpc.call("thread/read", {
+        threadId: t.id,
+        includeTurns: true,
+      });
+      const active = thread.thread?.turns?.findLast(
+        (v: any) => v.status === "inProgress",
+      );
+      if (active)
+        return h.rpc.call("turn/steer", {
+          threadId: t.id,
+          expectedTurnId: active.id,
+          input: [{ type: "text", text: prompt }],
+        });
+      return h.rpc.call("turn/start", {
+        threadId: t.id,
+        input: [{ type: "text", text: prompt }],
+      });
+    });
+  }
+  async create(
+    id: string,
+    hostId: string,
+    projectId: string | null,
+    cwd: string,
+    title: string,
+    prompt: string,
+    isolate = false,
+  ) {
+    const h = this.host(hostId),
+      tasks = this.store.tasks().filter((t) => t.hostId === hostId);
+    const project = projectId
+      ? h.projects.find((p) => p.id === projectId)
+      : undefined;
+    const roots = project
+      ? [
+          ...new Set([
+            ...project.roots,
+            ...tasks.filter((t) => t.projectId === projectId).map((t) => t.cwd),
+          ]),
+        ]
+      : [];
+    if (projectId && !project)
+      throw new Error("Choose a saved project on this machine");
+    if (project && !roots.includes(cwd))
+      throw new Error("Choose a working directory from the selected project");
+    if (!projectId && !tasks.some((t) => t.cwd === cwd))
+      throw new Error(
+        "Choose a project or checkout already observed on this machine",
+      );
+    return this.command(
+      id,
+      "",
+      "create",
+      { hostId, projectId, cwd, title, prompt, isolate },
+      async () => {
+        const worktree = isolate ? await h.worktree(cwd, title) : null,
+          runCwd = worktree?.cwd || cwd;
+        const params: any = {
+          cwd: runCwd,
+          approvalPolicy: "on-request",
+          sandbox: "workspace-write",
+        };
+        if (projectId) params.projectId = projectId;
+        const r = await h.rpc.call("thread/start", params);
+        const tid = r.thread.id,
+          key = taskKey(hostId, tid);
+        this.store.upsert({
+          key,
+          id: tid,
+          hostId,
+          title,
+          cwd: runCwd,
+          ...(projectId ? { projectId } : {}),
+          ...(worktree?.branch ? { branch: worktree.branch } : {}),
+          observedAt: Date.now(),
+          updatedAt: Date.now(),
+          status: "idle",
+          owned: true,
+          messages: [],
+        });
+        this.store.manage(key);
+        await h.rpc.call("thread/name/set", { threadId: tid, name: title });
+        const turn = await h.rpc.call("turn/start", {
+          threadId: tid,
+          input: [{ type: "text", text: prompt }],
+        });
+        this.emit("change");
+        return { key, threadId: tid, turnId: turn.turn.id, worktree };
+      },
+    );
+  }
+  async pause(id: string, key: string) {
+    const t = this.task(key),
+      h = this.host(t.hostId);
+    if (!t.managed)
+      throw new Error("Open this desktop-owned task in Codex to pause it");
+    return this.command(id, key, "pause", {}, async () => {
+      const r = await h.rpc.call("thread/read", {
+        threadId: t.id,
+        includeTurns: true,
+      });
+      const active = r.thread?.turns?.findLast(
+        (x: any) => x.status === "inProgress",
+      );
+      if (!active) throw new Error("No active turn to pause");
+      return h.rpc.call("turn/interrupt", {
+        threadId: t.id,
+        turnId: active.id,
+      });
+    });
+  }
+  async archive(id: string, key: string) {
+    const t = this.task(key),
+      h = this.host(t.hostId);
+    return this.command(id, key, "archive", {}, async () => {
+      const approval = this.store
+        .actions()
+        .find(
+          (action) =>
+            action.task_key === key &&
+            action.kind === "approval" &&
+            ["open", "responding"].includes(action.status),
+        );
+      if (approval)
+        throw new Error(
+          "Resolve the pending approval before archiving this task",
+        );
+      const current = await h.rpc.call("thread/read", {
+          threadId: t.id,
+          includeTurns: true,
+        }),
+        active = current.thread?.turns?.findLast(
+          (turn: any) => turn.status === "inProgress",
+        );
+      if (active)
+        throw new Error("Interrupt the active turn before archiving this task");
+      await h.rpc.call("thread/archive", { threadId: t.id });
+      this.store.removeTask(key);
+      return { key, threadId: t.id, archived: true };
+    });
+  }
+  private async coordinatorAction(
+    action: CoordinatorAction,
+  ): Promise<{ summary: string; taskKey?: string }> {
+    if (action.type === "send") {
+      const task = this.task(action.taskKey!);
+      await this.send(randomUUID(), task.key, action.prompt!);
+      return {
+        summary: `Instruction accepted for ${task.title}.`,
+        taskKey: task.key,
+      };
+    }
+    if (action.type === "interrupt") {
+      const task = this.task(action.taskKey!);
+      await this.pause(randomUUID(), task.key);
+      return {
+        summary: `Interrupt accepted for ${task.title}.`,
+        taskKey: task.key,
+      };
+    }
+    if (action.type === "archive") {
+      const task = this.task(action.taskKey!);
+      await this.archive(randomUUID(), task.key);
+      return { summary: `Archived ${task.title}.`, taskKey: task.key };
+    }
+    if (action.type === "create") {
+      const result = await this.create(
+          randomUUID(),
+          action.hostId!,
+          action.projectId ?? null,
+          action.cwd!,
+          action.title!,
+          action.prompt!,
+          action.isolate !== false,
+        ),
+        key = result.result?.key;
+      return {
+        summary: `Started ${action.title}${result.result?.worktree?.branch ? ` in ${result.result.worktree.branch}` : ""}.`,
+        taskKey: key,
+      };
+    }
+    if (action.type === "watch") {
+      const task = this.task(action.taskKey!);
+      this.watch(task.key, action.value!);
+      return {
+        summary: `${action.value ? "Watching" : "Stopped watching"} ${task.title}.`,
+        taskKey: task.key,
+      };
+    }
+    if (action.type === "resolve") {
+      const current = this.store.actions(),
+        ids = action.actionIds!.filter((id) =>
+          current.some(
+            (record) =>
+              record.id === id &&
+              record.kind !== "approval" &&
+              record.status !== "resolved",
+          ),
+        );
+      if (ids.length) this.store.resolveMany(ids);
+      this.emit("change");
+      return {
+        summary: `Marked ${ids.length} inbox item${ids.length === 1 ? "" : "s"} handled.`,
+      };
+    }
+    if (action.type === "approval") {
+      const record = this.store
+        .actions()
+        .find((value) => value.id === action.actionId);
+      if (!record) throw new Error("Approval request no longer exists");
+      const decision =
+        action.decision === "answer"
+          ? {
+              answers: Object.fromEntries(
+                (action.answers || []).map((answer) => [
+                  answer.questionId,
+                  answer.answer,
+                ]),
+              ),
+            }
+          : { action: action.decision };
+      this.approval(record.id, decision);
+      return {
+        summary:
+          action.decision === "answer"
+            ? "Answered the agent question."
+            : `${action.decision === "accept" ? "Approved" : "Declined"} ${record.title}.`,
+        taskKey: record.task_key || undefined,
+      };
+    }
+    await this.refresh(true);
+    return { summary: "Workspace state refreshed." };
+  }
+  async executeCoordinatorActions(plan: CoordinatorPlan) {
+    const executions: CoordinatorExecution[] = [];
+    for (const action of plan.actions) {
+      try {
+        const result = await this.coordinatorAction(action);
+        executions.push({
+          actionId: action.id,
+          type: action.type,
+          reason: action.reason,
+          status: "accepted",
+          summary: result.summary,
+          taskKey: result.taskKey,
+        });
+      } catch (error) {
+        executions.push({
+          actionId: action.id,
+          type: action.type,
+          reason: action.reason,
+          status: "failed",
+          summary: (error as Error).message,
+          taskKey: action.taskKey,
+        });
+      }
+    }
+    return executions;
+  }
+  async chat(message: string) {
+    if (this.chatBusy)
+      throw new Error("The coordinator is answering your previous message");
+    this.chatBusy = true;
+    this.store.addChat("user", { answer: message });
+    this.emit("change");
+    try {
+      const local = this.hosts.find((host) => !host.config.ssh);
+      if (!local) throw new Error("A local Codex runtime is required");
+      const tasks = this.store
+        .tasks()
+        .filter((task) => this.store.workItem(task.key));
+      const result = await coordinate(
+        local.config.codex,
+        this.root,
+        message,
+        {
+          tasks,
+          projects: this.projects(),
+          hosts: this.config.hosts,
+          history: this.store.chat(),
+          inboxActions: this.store.actions(),
+        },
+        this.config.coordinator,
+      );
+      result.executions = await this.executeCoordinatorActions(result);
+      this.store.addChat("assistant", result);
+      return result;
+    } catch (error) {
+      this.store.addChat("assistant", {
+        answer: `Coordinator unavailable: ${(error as Error).message}`,
+        actions: [],
+        executions: [],
+      });
+      throw error;
+    } finally {
+      this.chatBusy = false;
+      this.emit("change");
+    }
+  }
+  event(h: Host, e: any, generation: string) {
+    const p = e.params || {},
+      tid = p.threadId || p.thread?.id;
+    const key = tid ? taskKey(h.config.id, tid) : null;
+    if (e.method === "project/changed") {
+      void h.refreshProjects(true).finally(() => this.emit("change"));
+      return;
+    }
+    if (
+      (e.method === "thread/archived" || e.method === "thread/deleted") &&
+      key
+    ) {
+      this.store.removeTask(key);
+      this.emit("change");
+      return;
+    }
+    if (e.id != null && e.method) {
+      const supported = [
+        "item/commandExecution/requestApproval",
+        "item/fileChange/requestApproval",
+        "item/permissions/requestApproval",
+        "item/tool/requestUserInput",
+        "mcpServer/elicitation/request",
+      ];
+      if (!supported.includes(e.method)) {
+        try {
+          h.rpc.write({
+            id: e.id,
+            error: {
+              code: -32601,
+              message:
+                "ThreadHelm does not support this interactive request. Open the task in Codex.",
+            },
+          });
+        } catch {}
+        return;
+      }
+      this.store.action(
+        "approval",
+        e.method.includes("requestUserInput")
+          ? "Agent has a question"
+          : e.method.includes("fileChange")
+            ? "Review file access"
+            : e.method.includes("commandExecution")
+              ? "Review command"
+              : "Permission or input needed",
+        p.reason || p.command || p.message || "Review the request below.",
+        key,
+        `approval:${h.config.id}:${generation}:${JSON.stringify(e.id)}`,
+        {
+          hostId: h.config.id,
+          generation,
+          requestId: e.id,
+          method: e.method,
+          params: p,
+        },
+      );
+      this.emit("change");
+      return;
+    }
+    if (e.method === "serverRequest/resolved") {
+      for (const a of this.store.actions())
+        if (
+          a.kind === "approval" &&
+          a.payload?.hostId === h.config.id &&
+          JSON.stringify(a.payload.requestId) === JSON.stringify(p.requestId) &&
+          a.payload.generation === generation
+        )
+          this.store.resolve(a.id);
+    }
+    if (e.method === "turn/completed" && key) {
+      const turn = p.turn || {};
+      this.store.action(
+        turn.status === "failed" ? "failure" : "completion",
+        turn.status === "failed"
+          ? "Task needs attention"
+          : "Agent finished a turn",
+        turn.error?.message || "Review the latest response and changes.",
+        key,
+        `${turn.status === "failed" ? "failure" : "completion"}:${key}:${turn.id}${turn.status === "failed" ? ":failed" : ""}`,
+      );
+      void this.refreshHost(h);
+    }
+    if (e.method === "thread/project/updated") void this.refreshHost(h);
+    if (
+      [
+        "turn/started",
+        "turn/completed",
+        "thread/status/changed",
+        "thread/project/updated",
+        "serverRequest/resolved",
+      ].includes(e.method)
+    )
+      this.emit("change");
+  }
+  approval(id: string, decision: any) {
+    const a = this.store.actions().find((a) => a.id === id);
+    if (!a || a.kind !== "approval" || a.status !== "open")
+      throw new Error("This request is no longer pending");
+    const p = a.payload,
+      h = this.host(p.hostId);
+    let response: any;
+    if (
+      p.method === "item/commandExecution/requestApproval" ||
+      p.method === "item/fileChange/requestApproval"
+    ) {
+      if (!["accept", "decline", "cancel"].includes(decision.action))
+        throw new Error("Invalid decision");
+      const offered = p.params.availableDecisions;
+      if (Array.isArray(offered) && !offered.includes(decision.action))
+        throw new Error("This decision is not available for the request");
+      response = { decision: decision.action };
+    } else if (p.method === "item/tool/requestUserInput") {
+      const questions = p.params.questions || [];
+      const answers: any = {};
+      for (const q of questions) {
+        const value = decision.answers?.[q.id];
+        if (typeof value !== "string" || !value.trim())
+          throw new Error("Answer every question");
+        answers[q.id] = { answers: [value] };
+      }
+      response = { answers };
+    } else if (p.method === "item/permissions/requestApproval") {
+      if (!["accept", "decline"].includes(decision.action))
+        throw new Error("Invalid decision");
+      response = {
+        permissions: decision.action === "accept" ? p.params.permissions : {},
+        scope: "turn",
+      };
+    } else {
+      if (decision.action !== "decline" && decision.action !== "cancel")
+        throw new Error(
+          "This connector request must be completed in Codex; it can only be declined here",
+        );
+      response = { action: decision.action, content: null };
+    }
+    h.rpc.respond(p.requestId, response, p.generation);
+    this.store.resolve(id, "responding");
+    this.emit("change");
+    return { status: "responding" };
+  }
+  close() {
+    this.stopping = true;
+    if (this.timer) clearInterval(this.timer);
+    for (const h of this.hosts) h.rpc.close();
+    for (const adapter of this.adapters) adapter.close();
+  }
 }
