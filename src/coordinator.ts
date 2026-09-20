@@ -40,6 +40,7 @@ export interface CoordinatorPlan {
   answer: string;
   actions: CoordinatorAction[];
   executions?: CoordinatorExecution[];
+  evidenceRevision?: string;
   model?: string;
 }
 export interface CoordinatorSnapshot {

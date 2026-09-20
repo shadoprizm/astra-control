@@ -208,6 +208,21 @@ export class Store {
           "ALTER TABLE commands ADD COLUMN actor TEXT NOT NULL DEFAULT 'owner' CHECK(actor IN ('owner','coordinator','autopilot'))",
         );
     });
+    this.applyMigration(4, () => {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS coordinator_proposals(
+          id TEXT PRIMARY KEY,
+          evidence_revision TEXT NOT NULL,
+          model_action_id TEXT NOT NULL,
+          action TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'proposed' CHECK(status IN ('proposed','stale','executed','dismissed')),
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          UNIQUE(evidence_revision,model_action_id)
+        );
+        CREATE INDEX IF NOT EXISTS coordinator_proposals_status_idx ON coordinator_proposals(status,created_at DESC);
+      `);
+    });
   }
   private captureDecisionBaseline() {
     const key = "baseline.release0.decision.v1";
@@ -256,6 +271,56 @@ export class Store {
       .prepare("SELECT value FROM settings WHERE key=?")
       .get("baseline.release0.decision.v1") as any;
     return parse(row?.value, null);
+  }
+  saveCoordinatorProposal(
+    id: string,
+    evidenceRevision: string,
+    modelActionId: string,
+    action: any,
+  ) {
+    const now = Date.now();
+    this.db
+      .prepare(
+        "INSERT OR IGNORE INTO coordinator_proposals(id,evidence_revision,model_action_id,action,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
+      )
+      .run(
+        id,
+        evidenceRevision,
+        modelActionId,
+        JSON.stringify(action),
+        "proposed",
+        now,
+        now,
+      );
+    return this.coordinatorProposal(id);
+  }
+  coordinatorProposal(id: string, evidenceRevision?: string) {
+    const row = this.db
+      .prepare("SELECT * FROM coordinator_proposals WHERE id=?")
+      .get(id) as any;
+    if (
+      !row ||
+      (evidenceRevision &&
+        (row.evidence_revision !== evidenceRevision ||
+          row.status !== "proposed"))
+    )
+      return undefined;
+    return { ...row, action: parse(row.action, null) };
+  }
+  staleCoordinatorProposalsExcept(evidenceRevision: string) {
+    this.db
+      .prepare(
+        "UPDATE coordinator_proposals SET status='stale',updated_at=? WHERE status='proposed' AND evidence_revision<>?",
+      )
+      .run(Date.now(), evidenceRevision);
+  }
+  coordinatorProposals() {
+    return this.db
+      .prepare(
+        "SELECT * FROM coordinator_proposals ORDER BY created_at DESC LIMIT 250",
+      )
+      .all()
+      .map((row: any) => ({ ...row, action: parse(row.action, null) }));
   }
   upsert(t: Task) {
     const compact = storedTask(t);

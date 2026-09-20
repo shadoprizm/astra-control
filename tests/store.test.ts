@@ -568,7 +568,7 @@ test("coordinator actions are proposal-only and cannot mutate the workspace", as
     return {};
   };
   try {
-    const executions = await e.executeCoordinatorActions({
+    const plan = {
       answer: "Plan",
       actions: [
         {
@@ -591,7 +591,8 @@ test("coordinator actions are proposal-only and cannot mutate the workspace", as
           taskKey: fixture.key,
         },
       ],
-    });
+    };
+    const executions = await e.executeCoordinatorActions(plan);
     assert.deepEqual(order, []);
     assert.deepEqual(
       executions.map((result) => result.status),
@@ -600,7 +601,46 @@ test("coordinator actions are proposal-only and cannot mutate the workspace", as
     assert.ok(
       executions.every((result) => /no workspace action/i.test(result.summary)),
     );
+    assert.ok(
+      plan.actions.every((action) => action.id.startsWith("proposal-")),
+    );
     assert.equal(s.command("zero"), undefined);
+  } finally {
+    e.close();
+    close();
+  }
+});
+test("coordinator proposal IDs are stable for one evidence revision and stale across revisions", async () => {
+  const { s, close } = setup();
+  const e = new Engine({ port: 0, hosts: [] }, s, ".");
+  const makePlan = (revision: string) => ({
+    answer: "Plan",
+    evidenceRevision: revision,
+    actions: [
+      {
+        id: "recommendation-one",
+        type: "refresh" as const,
+        reason: "Refresh the evidence",
+      },
+    ],
+  });
+  try {
+    const first = makePlan("revision-one"),
+      firstResult = await e.executeCoordinatorActions(first),
+      retry = makePlan("revision-one"),
+      retryResult = await e.executeCoordinatorActions(retry);
+    assert.equal(first.actions[0].id, retry.actions[0].id);
+    assert.equal(firstResult[0].actionId, retryResult[0].actionId);
+    assert.equal(s.coordinatorProposals().length, 1);
+    assert.ok(s.coordinatorProposal(first.actions[0].id, "revision-one"));
+
+    const changed = makePlan("revision-two");
+    await e.executeCoordinatorActions(changed);
+    assert.equal(s.coordinatorProposal(first.actions[0].id)?.status, "stale");
+    assert.equal(
+      s.coordinatorProposal(first.actions[0].id, "revision-one"),
+      undefined,
+    );
   } finally {
     e.close();
     close();

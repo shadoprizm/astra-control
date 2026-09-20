@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { createHash } from "node:crypto";
 import { Host } from "./hosts.js";
 import { Store } from "./store.js";
 import { taskKey, Config, Project, Task, WorkItem } from "./types.js";
@@ -547,7 +548,8 @@ export class Engine extends EventEmitter {
       if (
         prior.task_key !== key ||
         prior.kind !== kind ||
-        prior.body !== JSON.stringify(body)
+        prior.body !== JSON.stringify(body) ||
+        prior.actor !== actor
       )
         throw new Error("Request ID was reused with a different action");
       return {
@@ -730,7 +732,26 @@ export class Engine extends EventEmitter {
     });
   }
   async executeCoordinatorActions(plan: CoordinatorPlan) {
-    return plan.actions.map((action): CoordinatorExecution => {
+    const evidenceRevision =
+      plan.evidenceRevision ||
+      createHash("sha256")
+        .update(JSON.stringify({ answer: plan.answer, actions: plan.actions }))
+        .digest("hex");
+    plan.evidenceRevision = evidenceRevision;
+    this.store.staleCoordinatorProposalsExcept(evidenceRevision);
+    return plan.actions.map((candidate, index): CoordinatorExecution => {
+      const modelActionId = candidate.id,
+        proposalId = `proposal-${createHash("sha256")
+          .update(`${evidenceRevision}\0${modelActionId}`)
+          .digest("hex")}`,
+        saved = this.store.saveCoordinatorProposal(
+          proposalId,
+          evidenceRevision,
+          modelActionId,
+          candidate,
+        ),
+        action = { ...saved.action, id: saved.id };
+      plan.actions[index] = action;
       const actionClass = policyAction(action.type, action.decision),
         decision = actionClass
           ? policyDecision("coordinator", actionClass)
@@ -760,19 +781,41 @@ export class Engine extends EventEmitter {
       const tasks = this.store
         .tasks()
         .filter((task) => this.store.workItem(task.key));
-      const result = await coordinate(
-        local.config.codex,
-        this.root,
-        message,
-        {
+      const snapshot = {
           tasks,
           projects: this.projects(),
           hosts: this.config.hosts,
           history: this.store.chat(),
           inboxActions: this.store.actions(),
         },
-        this.config.coordinator,
-      );
+        evidenceRevision = createHash("sha256")
+          .update(
+            JSON.stringify({
+              message,
+              tasks: [...snapshot.tasks].sort((a, b) =>
+                a.key.localeCompare(b.key),
+              ),
+              projects: [...snapshot.projects].sort((a, b) =>
+                `${a.hostId}:${a.id}`.localeCompare(`${b.hostId}:${b.id}`),
+              ),
+              hosts: [...snapshot.hosts].sort((a, b) =>
+                a.id.localeCompare(b.id),
+              ),
+              history: snapshot.history.slice(-10),
+              inboxActions: [...snapshot.inboxActions].sort((a, b) =>
+                String(a.id).localeCompare(String(b.id)),
+              ),
+            }),
+          )
+          .digest("hex"),
+        result = await coordinate(
+          local.config.codex,
+          this.root,
+          message,
+          snapshot,
+          this.config.coordinator,
+        );
+      result.evidenceRevision = evidenceRevision;
       result.executions = await this.executeCoordinatorActions(result);
       this.store.addChat("assistant", result);
       return result;
