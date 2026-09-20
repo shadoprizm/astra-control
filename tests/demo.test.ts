@@ -20,6 +20,8 @@ test('demo workspace is synthetic, useful, and disconnected from real integratio
   assert.equal(state.demo.enabled,true);assert.equal(state.demo.ephemeral,true);assert.equal(work.length,8);
   assert.deepEqual(new Set(work.flatMap(item=>item.sourceRefs.map(source=>source.adapter))),new Set(['codex','hermes','openclaw','openwebui']));
   assert.ok(state.actions.some(action=>action.kind==='approval'&&action.status==='open'));assert.ok(state.actions.some(action=>action.kind==='failure'&&action.status==='open'));assert.ok(state.actions.some(action=>action.kind==='completion'&&action.status==='open'));
+  assert.equal(state.shadowAnalysis.mode,'proposal-only');assert.equal(state.shadowAnalysis.enabled,false);assert.equal(state.shadowAnalysis.total.analyses,1);
+  assert.ok(state.briefing.recommendations.items.some((entry:any)=>entry.analysisMode==='shadow'));
   assert.equal(state.sources.length,4);assert.equal(state.sources.every(source=>source.online&&!source.stale),true);assert.equal(state.runtime.online,true);assert.ok(state.runtime.loadedModels.length>=2);
   const detail=await engine.detail(DEMO_ITEM_IDS.billing);assert.equal(detail.task.title,'Add a billing audit trail');assert.ok(detail.messages.some(message=>message.phase==='final_answer'));assert.equal(detail.git.available,true);
  }finally{engine.close();store.close();}
@@ -27,7 +29,7 @@ test('demo workspace is synthetic, useful, and disconnected from real integratio
 
 test('demo selection and mutation guard are explicit',()=>{
  assert.equal(demoRequested(['node','server','--demo'],{}),true);assert.equal(demoRequested(['node','server'],{THREADHELM_DEMO:'1'}),true);assert.equal(demoRequested(['node','server'],{ASTRA_DEMO:'1'}),true);assert.equal(demoRequested(['node','server'],{}),false);
- for(const path of ['/api/approval','/api/send','/api/pause','/api/archive','/api/create','/api/chat','/api/hosts/refresh'])assert.equal(demoRejectsMutation(path),true,path);
+ for(const path of ['/api/approval','/api/send','/api/pause','/api/archive','/api/create','/api/chat','/api/hosts/refresh','/api/shadow-analysis/run'])assert.equal(demoRejectsMutation(path),true,path);
  for(const path of ['/api/refresh','/api/watch','/api/actions/resolve','/api/actions/resolve-many'])assert.equal(demoRejectsMutation(path),false,path);
  const pkg=JSON.parse(readFileSync(new URL('../package.json',import.meta.url),'utf8'));assert.equal(pkg.scripts.demo,'tsx src/server.ts --demo');
 });

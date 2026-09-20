@@ -69,6 +69,18 @@
     "reasoningEffort": "xhigh",
     "maxActions": 12
   },
+  "shadowAnalysis": {
+    "enabled": false,
+    "model": "gpt-5.6-luna",
+    "reasoningEffort": "medium",
+    "intervalSeconds": 900,
+    "dailyCallLimit": 20,
+    "observableTokenLimit": 100000,
+    "maxExcerptChars": 4000,
+    "localOnlyProjects": [
+      { "hostId": "server", "projectId": "private-local-project" }
+    ]
+  },
   "runtime": {
     "id": "gpu-broker",
     "name": "Local model broker",

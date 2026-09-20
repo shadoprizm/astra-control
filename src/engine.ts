@@ -7,6 +7,7 @@ import {
   BriefingFeedbackRating,
   Config,
   Project,
+  ShadowAnalysisConfig,
   Task,
   WorkItem,
 } from "./types.js";
@@ -24,6 +25,11 @@ import { RuntimeMonitor } from "./runtime.js";
 import { demoGit, demoWorkspace, seedDemoStore } from "./demo.js";
 import { policyAction, policyDecision, type PolicyActor } from "./policy.js";
 import { buildTaskBriefing, buildWorkspaceBriefing } from "./briefing.js";
+import {
+  analyzeShadowWork,
+  buildShadowPrompt,
+  type ShadowRunner,
+} from "./shadow-analysis.js";
 
 function checkoutName(path: string) {
   const parts = path.replace(/[\\/]+$/, "").split(/[\\/]/);
@@ -36,7 +42,11 @@ export class Engine extends EventEmitter {
   adapters: SourceAdapter[];
   runtime: RuntimeMonitor;
   timer?: NodeJS.Timeout;
+  shadowTimer?: NodeJS.Timeout;
   chatBusy = false;
+  shadowBusy = false;
+  shadowLastError = "";
+  shadowRunner: ShadowRunner = analyzeShadowWork;
   stopping = false;
   modelCatalogs: Record<string, any[]> = {};
   private sourceRefreshes = new Map<string, Promise<void>>();
@@ -125,8 +135,16 @@ export class Engine extends EventEmitter {
       this.emit("change");
       return;
     }
-    void this.refresh(true);
+    const initial = this.refresh(true);
     this.timer = setInterval(() => void this.refresh(false), 12000);
+    const shadow = this.shadowConfig();
+    if (shadow.enabled) {
+      void initial.then(() => this.runShadowCycle());
+      this.shadowTimer = setInterval(
+        () => void this.runShadowCycle(),
+        shadow.intervalSeconds * 1000,
+      );
+    }
   }
   async refresh(force = false) {
     if (this.config.mode === "demo") {
@@ -382,6 +400,215 @@ export class Engine extends EventEmitter {
     }
     return result;
   }
+  private shadowConfig() {
+    const config: ShadowAnalysisConfig = this.config.shadowAnalysis || {};
+    return {
+      ...config,
+      enabled: config.enabled === true,
+      model: String(config.model || "gpt-5.6-luna").slice(0, 120),
+      reasoningEffort: config.reasoningEffort || "medium",
+      intervalSeconds: Math.max(
+        60,
+        Math.min(86400, Number(config.intervalSeconds || 900)),
+      ),
+      dailyCallLimit: Math.max(
+        1,
+        Math.min(100, Number(config.dailyCallLimit || 20)),
+      ),
+      observableTokenLimit: Math.max(
+        1000,
+        Math.min(10000000, Number(config.observableTokenLimit || 100000)),
+      ),
+      maxExcerptChars: Math.max(
+        500,
+        Math.min(12000, Number(config.maxExcerptChars || 4000)),
+      ),
+      localOnlyProjects: Array.isArray(config.localOnlyProjects)
+        ? config.localOnlyProjects.slice(0, 500)
+        : [],
+    };
+  }
+  private shadowEligible(item: WorkItem) {
+    return (
+      item.watched || ["active", "waiting", "failed"].includes(item.status)
+    );
+  }
+  private shadowLocalOnly(item: WorkItem) {
+    return this.shadowConfig().localOnlyProjects.some((boundary) => {
+      if (!boundary || boundary.hostId !== item.hostId) return false;
+      if (Object.prototype.hasOwnProperty.call(boundary, "projectId"))
+        return (boundary.projectId ?? null) === (item.projectId ?? null);
+      if (boundary.root) {
+        const root = boundary.root.replace(/[\\/]+$/, "");
+        return item.cwd === root || item.cwd.startsWith(`${root}/`);
+      }
+      return false;
+    });
+  }
+  private shadowCandidateBriefs() {
+    const actions = this.store.openActions(),
+      proposals = this.store.coordinatorProposals(),
+      feedback = this.store.briefingFeedback();
+    return this.store
+      .briefingCandidates(1000)
+      .map((raw) => {
+        const item = this.withAvailability(raw);
+        return {
+          item,
+          brief: buildTaskBriefing(item, actions, proposals, feedback),
+        };
+      })
+      .filter(({ item }) => this.shadowEligible(item))
+      .sort((a, b) => {
+        const score = (item: WorkItem) =>
+          item.status === "failed"
+            ? 100
+            : item.status === "waiting"
+              ? 90
+              : item.status === "active"
+                ? 80
+                : item.watched
+                  ? 60
+                  : 0;
+        return score(b.item) - score(a.item) || b.item.updatedAt - a.item.updatedAt;
+      });
+  }
+  shadowAnalysisState() {
+    const config = this.shadowConfig(),
+      analyses = this.store.shadowAnalyses(),
+      completed = new Set(
+        analyses.map(
+          (analysis) => `${analysis.task_key}\0${analysis.evidence_revision}`,
+        ),
+      ),
+      pending = this.shadowCandidateBriefs().filter(
+        ({ item, brief }) =>
+          !completed.has(`${item.key}\0${brief.evidenceRevision}`),
+      ),
+      blockedLocal = pending.filter(({ item }) =>
+        this.shadowLocalOnly(item),
+      ).length,
+      metrics = this.store.shadowMetrics(),
+      observableTokens =
+        metrics.today.inputTokens + metrics.today.outputTokens,
+      budgetExhausted =
+        metrics.today.calls >= config.dailyCallLimit ||
+        observableTokens >= config.observableTokenLimit;
+    return {
+      enabled: config.enabled,
+      mode: "proposal-only",
+      busy: this.shadowBusy,
+      status: !config.enabled
+        ? "disabled"
+        : this.shadowBusy
+          ? "analyzing"
+          : budgetExhausted
+            ? "budget-exhausted"
+            : pending.length === blockedLocal && pending.length > 0
+              ? "local-route-required"
+              : "ready",
+      model: config.model,
+      route: "codex-subscription",
+      lastError: this.shadowLastError,
+      pending: pending.length - blockedLocal,
+      blockedLocal,
+      limits: {
+        dailyCalls: config.dailyCallLimit,
+        observableTokens: config.observableTokenLimit,
+        maxExcerptChars: config.maxExcerptChars,
+        intervalSeconds: config.intervalSeconds,
+      },
+      ...metrics,
+      recent: analyses.slice(0, 12).map((analysis) => ({
+        id: analysis.id,
+        taskKey: analysis.task_key,
+        evidenceRevision: analysis.evidence_revision,
+        status: analysis.status,
+        model: analysis.model,
+        title: analysis.title,
+        recommendation: analysis.recommendation,
+        confidence: analysis.confidence,
+        latencyMs: analysis.latency_ms,
+        inputTokens: analysis.input_tokens,
+        outputTokens: analysis.output_tokens,
+        error: analysis.error,
+        createdAt: analysis.created_at,
+      })),
+    };
+  }
+  async runShadowCycle() {
+    const config = this.shadowConfig();
+    if (!config.enabled || this.config.mode === "demo" || this.stopping)
+      return { started: false, reason: "disabled" };
+    if (this.shadowBusy) return { started: false, reason: "busy" };
+    this.shadowBusy = true;
+    this.shadowLastError = "";
+    this.emit("change");
+    let reservation: { accepted: boolean; reason: string; id: string } | undefined,
+      started = Date.now();
+    try {
+      const analyses = this.store.shadowAnalyses(),
+        completed = new Set(
+          analyses.map(
+            (analysis) => `${analysis.task_key}\0${analysis.evidence_revision}`,
+          ),
+        ),
+        candidate = this.shadowCandidateBriefs().find(
+          ({ item, brief }) =>
+            !this.shadowLocalOnly(item) &&
+            !completed.has(`${item.key}\0${brief.evidenceRevision}`),
+        );
+      if (!candidate) return { started: false, reason: "no-eligible-evidence" };
+      const local = this.hosts.find((host) => !host.config.ssh);
+      if (!local) throw new Error("A local Codex analysis route is required");
+      const prompt = buildShadowPrompt(
+        candidate.item,
+        candidate.brief,
+        config.maxExcerptChars,
+      );
+      reservation = this.store.reserveShadowAnalysis(
+        candidate.item.key,
+        candidate.brief.evidenceRevision,
+        "codex-subscription",
+        config.model,
+        prompt.length,
+        config.dailyCallLimit,
+        config.observableTokenLimit,
+      );
+      if (!reservation.accepted)
+        return { started: false, reason: reservation.reason };
+      const result = await this.shadowRunner(
+        local.config.codex,
+        this.root,
+        prompt,
+        config,
+      );
+      this.store.finishShadowAnalysis(reservation.id, result);
+      return { started: true, id: reservation.id, status: "succeeded" };
+    } catch (error) {
+      const message = String((error as Error).message || "Shadow analysis failed")
+        .replace(/(bearer|api[_ -]?key|token|secret)\s*[:=]\s*\S+/gi, "$1=[redacted]")
+        .slice(0, 1000);
+      this.shadowLastError = message;
+      if (reservation?.accepted)
+        this.store.failShadowAnalysis(
+          reservation.id,
+          message,
+          Date.now() - started,
+        );
+      return { started: true, id: reservation?.id, status: "failed", error: message };
+    } finally {
+      this.shadowBusy = false;
+      this.emit("change");
+    }
+  }
+  triggerShadowAnalysis() {
+    const config = this.shadowConfig();
+    if (!config.enabled) throw new Error("Shadow analysis is not enabled");
+    if (this.shadowBusy) return { queued: false, reason: "busy" };
+    void this.runShadowCycle();
+    return { queued: true };
+  }
   state() {
     const actions = this.store.actions(),
       inboxItems = [
@@ -411,6 +638,7 @@ export class Engine extends EventEmitter {
       supervisorName:
         this.config.supervisorName?.trim().slice(0, 60) || "Astra",
       baselines: { decision: this.store.decisionBaseline() },
+      shadowAnalysis: this.shadowAnalysisState(),
       briefing,
       summary: this.store.workSummary(),
       projects: demo?.projects || this.projects(),
@@ -453,7 +681,8 @@ export class Engine extends EventEmitter {
     const result = this.store.workItems(query),
       actions = this.store.openActions(),
       proposals = this.store.coordinatorProposals(),
-      feedback = this.store.briefingFeedback();
+      feedback = this.store.briefingFeedback(),
+      analyses = this.store.shadowAnalyses();
     return {
       ...result,
       items: result.items.map((item) => {
@@ -465,6 +694,7 @@ export class Engine extends EventEmitter {
             actions,
             proposals,
             feedback,
+            analyses,
           ),
         };
       }),
@@ -484,6 +714,8 @@ export class Engine extends EventEmitter {
       actions,
       this.store.coordinatorProposals(),
       this.store.briefingFeedback(),
+      Date.now(),
+      this.store.shadowAnalyses(),
     );
   }
   rateRecommendation(
@@ -501,6 +733,7 @@ export class Engine extends EventEmitter {
         this.store.openActions(),
         this.store.coordinatorProposals(),
         this.store.briefingFeedback(),
+        this.store.shadowAnalyses(),
       ).recommendation;
     } else {
       recommendation = this.briefing().recommendations.items.find(
@@ -565,6 +798,7 @@ export class Engine extends EventEmitter {
         this.store.openActions(),
         this.store.coordinatorProposals(),
         this.store.briefingFeedback(),
+        this.store.shadowAnalyses(),
       ),
     };
   }
@@ -1079,6 +1313,7 @@ export class Engine extends EventEmitter {
   close() {
     this.stopping = true;
     if (this.timer) clearInterval(this.timer);
+    if (this.shadowTimer) clearInterval(this.shadowTimer);
     for (const h of this.hosts) h.rpc.close();
     for (const adapter of this.adapters) adapter.close();
   }

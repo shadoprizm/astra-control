@@ -33,6 +33,7 @@ let state = {
     commands: [],
     chat: [],
     briefing: {},
+    shadowAnalysis: {},
     runtime: {},
   },
   filter = "all",
@@ -223,7 +224,9 @@ function pageRevision(value = state) {
     actions: value.actions,
     briefing: value.briefing,
     ...(view === "activity" ? { commands: value.commands } : {}),
-    ...(view === "runtime" ? { runtime: value.runtime } : {}),
+    ...(view === "runtime"
+      ? { runtime: value.runtime, shadowAnalysis: value.shadowAnalysis }
+      : {}),
   });
 }
 function renderIfChanged() {
@@ -245,7 +248,12 @@ function briefingFeedbackHtml(entry) {
     .join("")}</div>`;
 }
 function briefingEntryHtml(entry) {
-  const source = entry.source === "model" ? "AI proposal" : "Evidence brief",
+  const source =
+      entry.analysisMode === "shadow"
+        ? "AI shadow"
+        : entry.source === "model"
+          ? "AI proposal"
+          : "Evidence brief",
     subject = entry.workTitle || "Workspace",
     primary = entry.actionId
       ? `<button class="briefing-open" data-action="${esc(entry.actionId)}">${entry.kind === "decision" ? "Review decision" : "Review item"} →</button>`
@@ -268,6 +276,10 @@ function renderBriefing() {
   $("#briefing-revision").textContent = briefing.evidenceRevision
     ? `Evidence ${briefing.evidenceRevision.slice(0, 10)} · refreshed ${ago(briefing.generatedAt)}`
     : "No briefing evidence available";
+  const shadow = state.shadowAnalysis || {};
+  $("#briefing-shadow").textContent = shadow.enabled
+    ? `Shadow ${shadow.status} · ${shadow.today?.calls || 0}/${shadow.limits?.dailyCalls || 20} calls today · ${shadow.pending || 0} queued`
+    : "Shadow analysis is disabled.";
   const sections = [
     ["now", briefing.nowRunning, "No source currently proves that work is running."],
     ["decisions", briefing.decisions, "No open decision currently needs you."],
@@ -606,6 +618,7 @@ function renderActivity() {
 }
 function renderRuntime() {
   const runtime = state.runtime || {},
+    shadow = state.shadowAnalysis || {},
     sources = state.sources || [],
     sourceCards = sources
       .map(
@@ -630,9 +643,18 @@ function renderRuntime() {
         (row) =>
           `<tr><td>${esc(row.provider)}</td><td>${esc(row.locality)}</td><td>${esc(row.count)}</td></tr>`,
       )
-      .join("");
+      .join(""),
+    shadowRecent = (shadow.recent || [])
+      .map((entry) => {
+        const task = state.tasks.find((item) => item.key === entry.taskKey);
+        return `<tr><td>${esc(task ? shortTitle(task) : entry.taskKey)}</td><td><span class="badge ${entry.status === "succeeded" ? "active" : "offline"}">${esc(entry.status)}</span></td><td>${esc(entry.title || entry.error || "—")}</td><td>${entry.latencyMs ? `${Math.round(entry.latencyMs / 100) / 10}s` : "—"}</td></tr>`;
+      })
+      .join(""),
+    shadowTokens =
+      (shadow.today?.inputTokens || 0) + (shadow.today?.outputTokens || 0),
+    shadowSection = `<section class="runtime-section shadow-runtime"><div class="runtime-card-heading"><div><div class="eyebrow">PROPOSAL-ONLY ANALYSIS</div><h2>AI shadow mode</h2></div><span class="badge ${shadow.enabled && shadow.status !== "budget-exhausted" ? "active" : "offline"}">${esc(shadow.status || "disabled")}</span></div><p class="quiet">${esc(state.supervisorName || "Astra")} records what it recommends against an exact evidence revision. Nothing in this lane can execute a workspace action.</p><div class="runtime-grid"><article class="runtime-card"><strong>Daily budget</strong><dl><div><dt>Calls</dt><dd>${shadow.today?.calls || 0} / ${shadow.limits?.dailyCalls || 20}</dd></div><div><dt>Observable tokens</dt><dd>${shadowTokens.toLocaleString()} / ${(shadow.limits?.observableTokens || 100000).toLocaleString()}</dd></div><div><dt>Usage reported</dt><dd>${shadow.today?.usageReported || 0} calls</dd></div><div><dt>Model</dt><dd>${esc(shadow.model || "—")}</dd></div></dl></article><article class="runtime-card"><strong>Queue</strong><dl><div><dt>Eligible revisions</dt><dd>${shadow.pending || 0}</dd></div><div><dt>Local-only blocked</dt><dd>${shadow.blockedLocal || 0}</dd></div><div><dt>Succeeded</dt><dd>${shadow.total?.succeeded || 0}</dd></div><div><dt>Failed</dt><dd>${shadow.total?.failed || 0}</dd></div></dl>${shadow.lastError ? `<div class="notice warn">${esc(shadow.lastError)}</div>` : ""}${shadow.enabled ? `<button class="secondary" data-shadow-run ${shadow.busy || shadow.status === "budget-exhausted" ? "disabled" : ""}>${shadow.busy ? "Analyzing…" : "Analyze next revision"}</button>` : ""}</article></div><div class="table-wrap"><table><thead><tr><th>Work</th><th>Status</th><th>Recommendation</th><th>Latency</th></tr></thead><tbody>${shadowRecent || '<tr><td colspan="4">No shadow analyses recorded yet.</td></tr>'}</tbody></table></div></section>`;
   $("#runtime-content").innerHTML =
-    `<section class="runtime-section"><div class="section-title"><h2>Connectors</h2><span class="quiet">Metadata only</span></div><div class="runtime-grid">${sourceCards || '<div class="empty compact">No external connectors are configured.</div>'}</div></section><section class="runtime-section"><div class="runtime-card-heading"><h2>GPU broker and router</h2><span class="badge ${runtime.online ? "active" : "offline"}">${runtime.online ? "Connected" : "Unavailable"}</span></div>${runtime.error ? `<div class="notice warn">${esc(runtime.error)}</div>` : ""}<div class="runtime-grid"><article class="runtime-card"><strong>Router state</strong><pre>${esc(runtime.router ? JSON.stringify(runtime.router, null, 2) : "No router status reported.")}</pre></article><article class="runtime-card"><strong>Safe metrics</strong><dl>${
+    `${shadowSection}<section class="runtime-section"><div class="section-title"><h2>Connectors</h2><span class="quiet">Metadata only</span></div><div class="runtime-grid">${sourceCards || '<div class="empty compact">No external connectors are configured.</div>'}</div></section><section class="runtime-section"><div class="runtime-card-heading"><h2>GPU broker and router</h2><span class="badge ${runtime.online ? "active" : "offline"}">${runtime.online ? "Connected" : "Unavailable"}</span></div>${runtime.error ? `<div class="notice warn">${esc(runtime.error)}</div>` : ""}<div class="runtime-grid"><article class="runtime-card"><strong>Router state</strong><pre>${esc(runtime.router ? JSON.stringify(runtime.router, null, 2) : "No router status reported.")}</pre></article><article class="runtime-card"><strong>Safe metrics</strong><dl>${
       Object.entries(runtime.metrics || {})
         .map(
           ([key, value]) =>
@@ -1275,6 +1297,11 @@ document.addEventListener("change", (e) => {
 document.addEventListener("click", async (e) => {
   const b = e.target.closest("button");
   if (!b) return;
+  if (b.hasAttribute("data-shadow-run")) {
+    await api("/api/shadow-analysis/run", {});
+    toast("Shadow analysis queued. No workspace action will execute.");
+    return;
+  }
   if (b.dataset.view) {
     view = b.dataset.view;
     inboxLimit = 24;

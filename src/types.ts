@@ -135,6 +135,7 @@ export interface BriefingEntry {
   evidenceRevision: string;
   evidence: string[];
   source: "deterministic" | "model";
+  analysisMode?: "coordinator" | "shadow";
   confidence: StatusConfidence;
   updatedAt: number;
   priority: number;
@@ -247,6 +248,21 @@ export interface CoordinatorConfig {
   reasoningEffort?: "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
   maxActions?: number;
 }
+export interface ShadowProjectBoundary {
+  hostId: string;
+  projectId?: string | null;
+  root?: string;
+}
+export interface ShadowAnalysisConfig {
+  enabled?: boolean;
+  model?: string;
+  reasoningEffort?: "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
+  intervalSeconds?: number;
+  dailyCallLimit?: number;
+  observableTokenLimit?: number;
+  maxExcerptChars?: number;
+  localOnlyProjects?: ShadowProjectBoundary[];
+}
 export interface Config {
   port: number;
   hosts: HostConfig[];
@@ -254,6 +270,7 @@ export interface Config {
   sources?: SourceConfig[];
   runtime?: RuntimeConfig;
   coordinator?: CoordinatorConfig;
+  shadowAnalysis?: ShadowAnalysisConfig;
   supervisorName?: string;
   publicOrigin?: string;
   allowedLogin?: string;

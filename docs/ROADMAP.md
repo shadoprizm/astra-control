@@ -21,9 +21,10 @@ The staged path from the current activity feed to the decision-oriented Astra ex
 - [x] Evidence expansion, confidence display, revision-bound useful/wrong/stale feedback, and stale model-proposal suppression.
 - [x] Responsive desktop and 390px layouts with no briefing mutation authority.
 - [ ] Measure at least 50 owner decisions over at least 14 days and compare median time-to-decision and missed decisions with the Release 0 baseline.
-- [ ] Instrument the seven-day model-analysis shadow budget before enabling automatic tiered analysis. Until then, only on-demand coordinator proposals enter the model recommendation lane.
+- [x] Instrument proposal-only shadow analysis with one call per evidence revision, transactional daily call and observable-token ceilings, bounded excerpts, latency/usage capture, and pre-prompt local-only exclusion.
+- [ ] Complete at least seven days of shadow data, inspect p50/p95 demand and recommendation feedback, and set the production analysis budget from those measurements.
 
-Release 1A remains in measurement mode until both open checks pass. Release 1B dispatcher and worker work does not inherit authority from this UI.
+Release 1A remains in measurement mode until both open checks pass. Shadow recommendations have no action authority. Release 1B dispatcher and worker work does not inherit authority from this UI.
 
 ## 0.1 — Open-source foundation
 

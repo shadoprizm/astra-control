@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type {
@@ -244,6 +244,35 @@ export class Store {
         CREATE INDEX IF NOT EXISTS briefing_feedback_updated_idx ON briefing_feedback(updated_at DESC);
       `);
     });
+    this.applyMigration(6, () => {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS shadow_analyses(
+          id TEXT PRIMARY KEY,
+          task_key TEXT NOT NULL,
+          evidence_revision TEXT NOT NULL,
+          route TEXT NOT NULL,
+          model TEXT NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('running','succeeded','failed')),
+          category TEXT,
+          title TEXT,
+          recommendation TEXT,
+          rationale TEXT,
+          risk TEXT,
+          confidence TEXT,
+          next_checkpoint TEXT,
+          input_chars INTEGER NOT NULL DEFAULT 0,
+          input_tokens INTEGER,
+          output_tokens INTEGER,
+          latency_ms INTEGER,
+          error TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          UNIQUE(task_key,evidence_revision)
+        );
+        CREATE INDEX IF NOT EXISTS shadow_analyses_status_idx ON shadow_analyses(status,created_at DESC);
+        CREATE INDEX IF NOT EXISTS shadow_analyses_daily_idx ON shadow_analyses(created_at,status);
+      `);
+    });
   }
   private captureDecisionBaseline() {
     const key = "baseline.release0.decision.v1";
@@ -376,6 +405,155 @@ export class Store {
         "SELECT * FROM briefing_feedback ORDER BY updated_at DESC LIMIT 1000",
       )
       .all() as any[];
+  }
+  reserveShadowAnalysis(
+    taskKey: string,
+    evidenceRevision: string,
+    route: string,
+    model: string,
+    inputChars: number,
+    dailyCallLimit: number,
+    observableTokenLimit: number,
+    now = Date.now(),
+  ) {
+    const day = Date.UTC(
+        new Date(now).getUTCFullYear(),
+        new Date(now).getUTCMonth(),
+        new Date(now).getUTCDate(),
+      ),
+      id = `shadow-${createHash("sha256")
+        .update(`${taskKey}\0${evidenceRevision}`)
+        .digest("hex")}`;
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      if (
+        this.db
+          .prepare(
+            "SELECT 1 FROM shadow_analyses WHERE task_key=? AND evidence_revision=?",
+          )
+          .get(taskKey, evidenceRevision)
+      ) {
+        this.db.exec("COMMIT");
+        return { accepted: false, reason: "already-analyzed", id };
+      }
+      const usage = this.db
+        .prepare(
+          `SELECT COUNT(*) calls,
+             COALESCE(SUM(COALESCE(input_tokens,0)+COALESCE(output_tokens,0)),0) observable_tokens
+           FROM shadow_analyses WHERE created_at>=?`,
+        )
+        .get(day) as any;
+      if (Number(usage.calls) >= dailyCallLimit) {
+        this.db.exec("COMMIT");
+        return { accepted: false, reason: "daily-call-limit", id };
+      }
+      if (Number(usage.observable_tokens) >= observableTokenLimit) {
+        this.db.exec("COMMIT");
+        return { accepted: false, reason: "observable-token-limit", id };
+      }
+      this.db
+        .prepare(
+          `INSERT INTO shadow_analyses(
+             id,task_key,evidence_revision,route,model,status,input_chars,created_at,updated_at
+           ) VALUES(?,?,?,?,?,'running',?,?,?)`,
+        )
+        .run(id, taskKey, evidenceRevision, route, model, inputChars, now, now);
+      this.db.exec("COMMIT");
+      return { accepted: true, reason: "reserved", id };
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  finishShadowAnalysis(id: string, result: any, now = Date.now()) {
+    this.db
+      .prepare(
+        `UPDATE shadow_analyses SET status='succeeded',category=?,title=?,recommendation=?,
+         rationale=?,risk=?,confidence=?,next_checkpoint=?,input_tokens=?,output_tokens=?,
+         latency_ms=?,error=NULL,updated_at=? WHERE id=? AND status='running'`,
+      )
+      .run(
+        result.category,
+        result.title,
+        result.recommendation,
+        result.rationale,
+        result.risk,
+        result.confidence,
+        result.nextCheckpoint,
+        result.inputTokens ?? null,
+        result.outputTokens ?? null,
+        result.latencyMs ?? null,
+        now,
+        id,
+      );
+    return this.shadowAnalysis(id);
+  }
+  failShadowAnalysis(id: string, error: string, latencyMs: number, now = Date.now()) {
+    this.db
+      .prepare(
+        "UPDATE shadow_analyses SET status='failed',error=?,latency_ms=?,updated_at=? WHERE id=? AND status='running'",
+      )
+      .run(error.slice(0, 1000), latencyMs, now, id);
+    return this.shadowAnalysis(id);
+  }
+  shadowAnalysis(id: string) {
+    return this.db.prepare("SELECT * FROM shadow_analyses WHERE id=?").get(id) as any;
+  }
+  shadowAnalyses(limit = 1000) {
+    return this.db
+      .prepare("SELECT * FROM shadow_analyses ORDER BY created_at DESC LIMIT ?")
+      .all(Math.max(1, Math.min(5000, limit))) as any[];
+  }
+  shadowMetrics(now = Date.now()) {
+    const date = new Date(now),
+      day = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
+      today = this.db
+        .prepare(
+          `SELECT COUNT(*) calls,
+             SUM(CASE WHEN status='succeeded' THEN 1 ELSE 0 END) succeeded,
+             SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) failed,
+             COALESCE(SUM(input_chars),0) input_chars,
+             COALESCE(SUM(input_tokens),0) input_tokens,
+             COALESCE(SUM(output_tokens),0) output_tokens,
+             SUM(CASE WHEN input_tokens IS NOT NULL OR output_tokens IS NOT NULL THEN 1 ELSE 0 END) usage_reported
+           FROM shadow_analyses WHERE created_at>=?`,
+        )
+        .get(day) as any,
+      total = this.db
+        .prepare(
+          `SELECT COUNT(*) analyses,
+             SUM(CASE WHEN status='succeeded' THEN 1 ELSE 0 END) succeeded,
+             SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) failed,
+             MIN(created_at) started_at
+           FROM shadow_analyses`,
+        )
+        .get() as any,
+      ratings = this.db
+        .prepare(
+          `SELECT rating,COUNT(*) count FROM briefing_feedback
+           WHERE recommendation_id LIKE 'shadow-%' GROUP BY rating`,
+        )
+        .all() as any[];
+    return {
+      today: {
+        calls: Number(today.calls || 0),
+        succeeded: Number(today.succeeded || 0),
+        failed: Number(today.failed || 0),
+        inputChars: Number(today.input_chars || 0),
+        inputTokens: Number(today.input_tokens || 0),
+        outputTokens: Number(today.output_tokens || 0),
+        usageReported: Number(today.usage_reported || 0),
+      },
+      total: {
+        analyses: Number(total.analyses || 0),
+        succeeded: Number(total.succeeded || 0),
+        failed: Number(total.failed || 0),
+        startedAt: total.started_at == null ? null : Number(total.started_at),
+        feedback: Object.fromEntries(
+          ratings.map((row) => [String(row.rating), Number(row.count)]),
+        ),
+      },
+    };
   }
   openActions(limit = 1000) {
     return this.db
@@ -987,6 +1165,11 @@ export class Store {
     this.db
       .prepare("UPDATE commands SET status='uncertain' WHERE status='sending'")
       .run();
+    this.db
+      .prepare(
+        "UPDATE shadow_analyses SET status='failed',error='Analysis process restarted before completion',updated_at=? WHERE status='running'",
+      )
+      .run(Date.now());
     this.expireApprovals();
   }
   commands() {

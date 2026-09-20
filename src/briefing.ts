@@ -35,6 +35,23 @@ interface BriefingFeedback {
   evidence_revision: string;
   rating: BriefingFeedbackRating;
 }
+interface ShadowAnalysis {
+  id: string;
+  task_key: string;
+  evidence_revision: string;
+  route: string;
+  model: string;
+  status: string;
+  category?: string | null;
+  title?: string | null;
+  recommendation?: string | null;
+  rationale?: string | null;
+  risk?: string | null;
+  confidence?: string | null;
+  next_checkpoint?: string | null;
+  created_at: number;
+  updated_at: number;
+}
 
 const digest = (value: unknown) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -293,17 +310,47 @@ const proposalRecommendation = (
       ...(item ? [`Task status when last observed: ${item.status}`] : []),
     ],
     source: "model",
+    analysisMode: "coordinator",
     confidence: item?.statusConfidence || "heuristic",
     updatedAt: proposal.updated_at || proposal.created_at,
     priority: item ? 86 : 70,
   };
 };
+const shadowRecommendation = (
+  analysis: ShadowAnalysis,
+  item: WorkItem,
+): BriefingEntry => ({
+  id: analysis.id,
+  kind: "recommendation",
+  taskKey: item.key,
+  workTitle: item.title,
+  title: clean(analysis.title, 240) || "AI shadow recommendation",
+  body:
+    clean(analysis.recommendation, 700) ||
+    "Review the shadow analysis and current evidence.",
+  evidenceRevision: analysis.evidence_revision,
+  evidence: [
+    "AI shadow analysis; no action executed",
+    `Category: ${clean(analysis.category || "review", 80)}`,
+    `Confidence: ${clean(analysis.confidence || "low", 40)}`,
+    `Model: ${clean(analysis.model, 120)}`,
+    `Risk: ${clean(analysis.risk || "Not reported", 500)}`,
+    `Rationale: ${clean(analysis.rationale || "Not reported", 700)}`,
+    `Next checkpoint: ${clean(analysis.next_checkpoint || "Review current evidence", 500)}`,
+  ],
+  source: "model",
+  analysisMode: "shadow",
+  confidence: item.statusConfidence,
+  updatedAt: analysis.updated_at || analysis.created_at,
+  priority: ["failed", "waiting"].includes(item.status) ? 94 : 76,
+});
 
 export function buildTaskBriefing(
   item: WorkItem,
   actions: InboxAction[] = [],
   proposals: CoordinatorProposal[] = [],
   feedback: BriefingFeedback[] = [],
+  analyses: ShadowAnalysis[] = [],
 ): TaskBriefing {
   const relevant = actions
       .filter((action) => openAction(action) && action.task_key === item.key)
@@ -318,6 +365,14 @@ export function buildTaskBriefing(
       ["approval", "blocked"].includes(action.kind),
     ),
     next = nextCopy(item, decisionAction),
+    shadow = analyses
+      .filter(
+        (analysis) =>
+          analysis.status === "succeeded" &&
+          analysis.task_key === item.key &&
+          analysis.evidence_revision === revision,
+      )
+      .sort((a, b) => b.created_at - a.created_at)[0],
     model = proposals
       .filter(
         (proposal) =>
@@ -326,9 +381,11 @@ export function buildTaskBriefing(
           proposal.action.briefingEvidenceRevision === revision,
       )
       .sort((a, b) => b.created_at - a.created_at)[0],
-    recommendation = model
-      ? proposalRecommendation(model, item)
-      : deterministicRecommendation(item, relevant[0], revision, lines);
+    recommendation = shadow
+      ? shadowRecommendation(shadow, item)
+      : model
+        ? proposalRecommendation(model, item)
+        : deterministicRecommendation(item, relevant[0], revision, lines);
   recommendation.feedback = feedbackFor(
     feedback,
     recommendation.id,
@@ -408,11 +465,12 @@ export function buildWorkspaceBriefing(
   proposals: CoordinatorProposal[] = [],
   feedback: BriefingFeedback[] = [],
   now = Date.now(),
+  analyses: ShadowAnalysis[] = [],
 ): WorkspaceBriefing {
   const unique = [...new Map(items.map((item) => [item.key, item])).values()],
     taskMap = new Map(unique.map((item) => [item.key, item])),
     briefs = unique.map((item) =>
-      buildTaskBriefing(item, actions, proposals, feedback),
+      buildTaskBriefing(item, actions, proposals, feedback, analyses),
     ),
     taskProposalIds = new Set(
       briefs
@@ -468,6 +526,13 @@ export function buildWorkspaceBriefing(
         .map((proposal) => ({
           id: proposal.id,
           revision: proposal.evidence_revision,
+        }))
+        .sort((a, b) => a.id.localeCompare(b.id)),
+      analyses: analyses
+        .filter((analysis) => analysis.status === "succeeded")
+        .map((analysis) => ({
+          id: analysis.id,
+          revision: analysis.evidence_revision,
         }))
         .sort((a, b) => a.id.localeCompare(b.id)),
     });

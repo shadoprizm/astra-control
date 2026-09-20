@@ -1,4 +1,5 @@
 import type {SourceObservation} from './adapters.js';
+import {buildTaskBriefing} from './briefing.js';
 import type {AdapterName,Config,Message,RuntimeSnapshot,WorkCapabilities,WorkItem,WorkKind,WorkStatus} from './types.js';
 import type {Store} from './store.js';
 
@@ -27,7 +28,7 @@ export function demoRequested(argv:string[]=process.argv,env:NodeJS.ProcessEnv=p
 
 export function demoConfig(port=4318):Config{return {port,hosts:[],mode:'demo'};}
 
-export function demoRejectsMutation(path:string){return new Set(['/api/approval','/api/send','/api/pause','/api/archive','/api/create','/api/chat','/api/hosts/refresh']).has(path);}
+export function demoRejectsMutation(path:string){return new Set(['/api/approval','/api/send','/api/pause','/api/archive','/api/create','/api/chat','/api/hosts/refresh','/api/shadow-analysis/run']).has(path);}
 
 function message(id:string,role:string,text:string,minutesAgo:number,phase?:string,extra:Partial<Message>={}):Message{return {id,role,text,at:Date.now()-minutesAgo*60000,...(phase?{phase}:{}),...extra};}
 
@@ -57,6 +58,11 @@ export function seedDemoStore(store:Store,now=Date.now()){
  store.action('completion','Billing audit is ready for review','The agent added the audit trail and reports 82 passing tests.',DEMO_ITEM_IDS.billing,'demo:billing-complete',{demo:true});
  store.action('review','Migration evidence attached','Review the schema and rollback notes before merging.',DEMO_ITEM_IDS.billing,'demo:billing-review',{demo:true});
  const handled=store.action('completion','Dependency report completed','No critical advisories were found.',DEMO_ITEM_IDS.dependencies,'demo:dependency-complete',{demo:true});store.resolve(handled.id);
+ const shadowItem=store.workItem(DEMO_ITEM_IDS.sync);
+ if(shadowItem){
+  const brief=buildTaskBriefing(shadowItem,store.openActions()),reservation=store.reserveShadowAnalysis(shadowItem.key,brief.evidenceRevision,'demo','gpt-5.6-luna',742,20,100000,now);
+  if(reservation.accepted)store.finishShadowAnalysis(reservation.id,{category:'resolve-decision',title:'Confirm the CRM field mapping',recommendation:'Review the proposed account-region mapping before any paused records are retried.',rationale:'The upstream schema changed and twelve records remain paused, so the next useful step is an owner decision on the mapping.',risk:'An incorrect mapping could put customer records in the wrong region.',confidence:'high',nextCheckpoint:'A confirmed mapping or a revised data contract.',inputTokens:1240,outputTokens:118,latencyMs:1650},now);
+ }
  return ids;
 }
 
