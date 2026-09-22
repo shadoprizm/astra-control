@@ -192,7 +192,25 @@ async function api(path, body) {
       : {},
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
-  const d = await r.json();
+  const contentType = r.headers.get("content-type") || "";
+  const responseText = await r.text();
+  let d;
+  if (!/\bapplication\/json\b/i.test(contentType)) {
+    if (r.redirected || /^\s*</.test(responseText))
+      throw new Error(
+        "Your secure dashboard session expired. Reload this page and sign in again, then retry the action.",
+      );
+    throw new Error(
+      "The dashboard returned an unexpected response. Reload the page and try again.",
+    );
+  }
+  try {
+    d = JSON.parse(responseText || "{}");
+  } catch {
+    throw new Error(
+      "The dashboard returned invalid data. Reload the page and try again.",
+    );
+  }
   if (!r.ok) {
     if (storageKey && d.error && !/timed out|connection closed/i.test(d.error))
       sessionStorage.removeItem(storageKey);
