@@ -1080,6 +1080,17 @@ function coordinatorActions(message) {
     })
     .join("");
 }
+function coordinatorUsage(message) {
+  const usage = message.body?.usage;
+  if (!usage) return "";
+  const input = usage.inputTokens ?? usage.estimatedInputTokens,
+    output = usage.outputTokens ?? usage.estimatedOutputTokens,
+    limit = Math.round((usage.maxInputChars || 0) / 4),
+    detail = usage.inputTokens != null ? "reported" : "estimated",
+    tasks = usage.context?.tasks,
+    inbox = usage.context?.inbox;
+  return `<div class="quiet coordinator-usage">Context: ${Number(input || 0).toLocaleString()} ${esc(detail)} input tokens${limit ? ` of ${limit.toLocaleString()} available` : ""} · ${Number(output || 0).toLocaleString()} output tokens${tasks ? ` · ${tasks.included}/${tasks.available} tasks` : ""}${inbox ? ` · ${inbox.included}/${inbox.available} inbox items` : ""}</div>`;
+}
 function renderChat() {
   const live = $("#chat-live"),
     existing = panel === "chat" && !$("#panel").hidden && !!live,
@@ -1107,7 +1118,7 @@ function renderChat() {
   const messages = $("#chat-live"),
     input = $("#chat-input"),
     button = $('#chat-form button[type="submit"]');
-  messages.innerHTML = `<div class="messages">${state.chat.length ? state.chat.map((m) => `<article class="message ${m.role === "user" ? "user" : "assistant"}"><div class="message-meta"><span>${m.role === "user" ? "You" : "Coordinator"}${m.body.model ? ` · ${esc(m.body.model)}` : ""}</span></div><div class="rich-text">${renderRichText(m.body.answer)}</div>${coordinatorActions(m)}${(m.body.dispatches || []).map((d) => `<div class="proposal"><small>LEGACY PROPOSAL · ${esc(title(state.tasks.find((t) => t.key === d.taskKey)))}</small><p>${esc(d.prompt)}</p><button class="secondary" data-proposal-key="${esc(d.taskKey)}" data-proposal-prompt="${esc(d.prompt)}">Send instruction →</button></div>`).join("")}</article>`).join("") : '<div class="empty"><strong>Your workspace has an AI coordinator.</strong>Try “Review everything and tell me what needs attention first.”</div>'}</div>${state.chatBusy ? '<div class="loading">Coordinator is reviewing the workspace and preparing recommendations…</div>' : ""}`;
+  messages.innerHTML = `<div class="messages">${state.chat.length ? state.chat.map((m) => `<article class="message ${m.role === "user" ? "user" : "assistant"}"><div class="message-meta"><span>${m.role === "user" ? "You" : "Coordinator"}${m.body.model ? ` · ${esc(m.body.model)}` : ""}</span></div><div class="rich-text">${renderRichText(m.body.answer)}</div>${coordinatorUsage(m)}${coordinatorActions(m)}${(m.body.dispatches || []).map((d) => `<div class="proposal"><small>LEGACY PROPOSAL · ${esc(title(state.tasks.find((t) => t.key === d.taskKey)))}</small><p>${esc(d.prompt)}</p><button class="secondary" data-proposal-key="${esc(d.taskKey)}" data-proposal-prompt="${esc(d.prompt)}">Send instruction →</button></div>`).join("")}</article>`).join("") : '<div class="empty"><strong>Your workspace has an AI coordinator.</strong>Try “Review everything and tell me what needs attention first.”</div>'}</div>${state.chatBusy ? '<div class="loading">Coordinator is reviewing the workspace and preparing recommendations…</div>' : ""}`;
   input.disabled = !!state.chatBusy;
   button.disabled = !!state.chatBusy;
   restorePanelScroll(scroll);

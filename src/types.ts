@@ -248,6 +248,8 @@ export interface CoordinatorConfig {
   model?: string;
   reasoningEffort?: "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
   maxActions?: number;
+  /** A high-water safety rail for the complete coordinator prompt, not a daily budget. */
+  maxInputChars?: number;
 }
 export interface ShadowProjectBoundary {
   hostId: string;

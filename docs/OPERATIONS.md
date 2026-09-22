@@ -24,7 +24,7 @@ The CLI login, SSH setup, and repository paths belong to each execution machine.
 
 ## Coordinator authority
 
-The coordinator runs only when the owner submits a coordinator message. Its default configuration is `{"model":"gpt-6-astra","reasoningEffort":"xhigh","maxActions":12}`; override those fields under `coordinator` in `data/config.json` when necessary. `supervisorName` changes its display name in the private dashboard.
+The coordinator runs only when the owner submits a coordinator message. Its default configuration is `{"model":"gpt-5.6-terra","reasoningEffort":"xhigh","maxActions":12,"maxInputChars":800000}`. `maxInputChars` is a generous high-water rail for one complete prompt, not a daily usage budget; it prevents a malformed or runaway workspace snapshot from crowding out the coordinator. Each completed coordinator message records reported token usage when Codex provides it, or a clearly labelled estimate otherwise. Override these fields under `coordinator` in `data/config.json` when necessary. `supervisorName` changes its display name in the private dashboard.
 
 Coordinator output is proposal-only in this release. The server does not execute emitted actions, including sends, creates, inbox resolution, or approval responses. Direct owner controls continue to use the command and approval paths. Their audit rows identify the actor, and the policy truth table in `src/policy.ts` denies autopilot execution until a later release deliberately enables bounded classes.
 

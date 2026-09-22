@@ -129,7 +129,7 @@ Permanent deletion, automatic retry, push, merge, deployment, and worktree remov
 - `hosts`: the hub machine plus optional SSH-reachable Codex machines;
 - `sources`: zero or more Claude Code, Hermes, OpenClaw, and Open WebUI adapters;
 - `runtime`: an optional loopback model/router inventory source;
-- `coordinator`: optional model, reasoning, and maximum-action settings;
+- `coordinator`: optional model, reasoning, maximum-action, and generous prompt high-water settings. `maxInputChars` protects against a malformed or runaway snapshot; it is not a daily token budget.
 - `shadowAnalysis`: optional proposal-only analysis, daily measurement limits, and explicit local-only project boundaries;
 - `supervisorName`: the private display name for the coordinator, such as `Astra`;
 - `publicOrigin` plus an authentication mode only when using authenticated HTTPS access.
