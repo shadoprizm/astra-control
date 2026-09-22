@@ -1310,6 +1310,30 @@ export class Engine extends EventEmitter {
     this.emit("change");
     return { status: "responding" };
   }
+  async reissueApproval(id: string, approvalId: string) {
+    const approval = this.store.actionById(approvalId);
+    if (
+      !approval ||
+      approval.kind !== "approval" ||
+      approval.status !== "expired"
+    )
+      throw new Error("Only an expired approval can be reissued");
+    if (!approval.task_key)
+      throw new Error("The original task is no longer available");
+    const task = this.task(approval.task_key);
+    if (!task.managed)
+      throw new Error(
+        "This task is not managed by ThreadHelm, so its agent must be reopened in Codex to request a new decision.",
+      );
+    const sent = await this.send(
+      id,
+      approval.task_key,
+      "A previous approval request expired when the control connection restarted. Do not perform the underlying operation or assume permission. Reissue the same request through the standard approval mechanism, preserving its scope and options, so the owner can decide here.",
+    );
+    this.store.resolve(approval.id, "reissued");
+    this.emit("change");
+    return sent;
+  }
   close() {
     this.stopping = true;
     if (this.timer) clearInterval(this.timer);

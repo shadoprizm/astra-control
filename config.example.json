@@ -6,7 +6,7 @@
       "name": "MacBook Pro",
       "codex": "/Applications/ChatGPT.app/Contents/Resources/codex",
       "python": "python3",
-      "codexVersions": ["0.154.0-alpha.6.2"]
+      "codexVersions": ["0.155.1", "0.155.0-alpha.9.2", "0.154.0-alpha.6.2"]
     },
     {
       "id": "server",

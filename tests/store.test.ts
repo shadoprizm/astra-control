@@ -277,6 +277,47 @@ test("invalidated approvals stay expired and require a fresh request on the new 
     close();
   }
 });
+test("an expired managed approval can request a fresh owner decision", async () => {
+  const { s, close } = setup();
+  const e = new Engine(
+    { port: 0, hosts: [{ id: "local", name: "Local", codex: "unused" }] },
+    s,
+    ".",
+  );
+  const h = e.host("local"), calls: any[] = [];
+  s.upsert(fixture);
+  s.manage(fixture.key);
+  const approval = s.action(
+    "approval",
+    "Review command",
+    "May I inspect the scheduled task?",
+    fixture.key,
+    "approval:expired",
+    { hostId: "local", method: "item/permissions/requestApproval", params: {} },
+  );
+  s.expireApprovals("local");
+  (h as any).snapshot = async () => [fixture];
+  (h.rpc as any).call = async (method: string, params: any) => {
+    calls.push({ method, params });
+    if (method === "thread/read") return { thread: { turns: [] } };
+    if (method === "turn/start") return { turn: { id: "replacement-turn" } };
+    return {};
+  };
+  try {
+    await e.reissueApproval("reissue-request-1", approval.id);
+    assert.equal(s.actionById(approval.id)?.status, "reissued");
+    assert.deepEqual(calls.map((call) => call.method), [
+      "thread/resume",
+      "thread/read",
+      "turn/start",
+    ]);
+    assert.match(calls[2].params.input[0].text, /Do not perform/i);
+    assert.match(calls[2].params.input[0].text, /reissue the same request/i);
+  } finally {
+    e.close();
+    close();
+  }
+});
 test("offline machines retain their last snapshot without reporting a fresh observation", async () => {
   const { s, close } = setup();
   const e = new Engine(

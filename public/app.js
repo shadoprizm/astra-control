@@ -970,7 +970,20 @@ async function openAction(id) {
 function renderAction(a, t, d, error = "") {
   const p = a.payload,
     approvalHost = state.hosts.find((host) => host.id === p?.hostId),
-    approvalControl = !approvalHost || approvalHost.controlAvailable;
+    approvalControl = !approvalHost || approvalHost.controlAvailable,
+    canReissue =
+      a.kind === "approval" &&
+      a.status === "expired" &&
+      !state.demo?.enabled &&
+      approvalControl &&
+      !!t?.managed,
+    expiredRecoveryNote = !approvalControl
+      ? "A compatibility update is needed before Astra can request a replacement."
+      : !t
+        ? "The original task is no longer available to Astra."
+        : !t.managed
+          ? "Codex desktop owns this task, so it must request a replacement there."
+          : "You do not need to reopen Codex: ask the agent to issue a fresh request and its new choices will appear here.";
   let form = "";
   if (
     a.kind === "approval" &&
@@ -1020,7 +1033,7 @@ function renderAction(a, t, d, error = "") {
       ? `<a href="${esc(ref.deepLink)}" ${ref.adapter === "codex" ? "" : 'target="_blank" rel="noreferrer"'}>Open in ${esc(sourceName(t))} ↗</a>`
       : "";
   $("#panel-content").innerHTML =
-    `${t ? `<p class="quiet">${esc(hostName(t.hostId))} · ${esc(title(t))}</p>` : ""}${a.kind === "failure" || a.kind === "delivery" ? `<div class="notice warn"><strong>${esc(a.title)}</strong><br>${esc(a.body)}</div>` : ""}${review}${state.demo?.enabled && a.kind === "approval" ? '<div class="notice"><strong>Sample decision only.</strong><br>Approval controls are disabled because no agent is connected.</div>' : ""}${!approvalControl && a.kind === "approval" ? `<div class="notice warn"><strong>Approval controls disabled.</strong><br>${esc(approvalHost?.controlError || "This Codex protocol has not passed the compatibility probe.")}</div>` : ""}${error ? `<div class="notice warn">Live evidence could not be refreshed: ${esc(error)}</div>` : ""}${p ? `<details class="technical-details"><summary><span>Technical request details</span><small>Optional</small></summary><pre>${esc(JSON.stringify(p.params, null, 2))}</pre></details>` : ""}${a.status === "expired" ? '<div class="notice warn">The runtime connection changed, so this approval is invalid and cannot be reused. Resume or inspect the task in Codex and have the agent request approval again.</div>' : ""}${a.status === "responding" ? '<div class="notice">Decision submitted. Waiting for Codex to confirm resolution.</div>' : ""}<form id="decision-form">${form}</form><div class="actions-row">${t ? `<button class="secondary" data-task="${esc(t.key)}">Open full work</button>${sourceLink}` : ""}${(a.kind !== "approval" && a.status === "open") || a.status === "expired" ? `<button class="primary" data-resolve="${esc(a.id)}">Mark handled</button>` : ""}</div><p class="quiet">Created ${new Date(a.created_at).toLocaleString()}</p>`;
+    `${t ? `<p class="quiet">${esc(hostName(t.hostId))} · ${esc(title(t))}</p>` : ""}${a.kind === "failure" || a.kind === "delivery" ? `<div class="notice warn"><strong>${esc(a.title)}</strong><br>${esc(a.body)}</div>` : ""}${review}${state.demo?.enabled && a.kind === "approval" ? '<div class="notice"><strong>Sample decision only.</strong><br>Approval controls are disabled because no agent is connected.</div>' : ""}${!approvalControl && a.kind === "approval" ? `<div class="notice warn"><strong>Approval controls disabled.</strong><br>${esc(approvalHost?.controlError || "This Codex protocol has not passed the compatibility probe.")}</div>` : ""}${error ? `<div class="notice warn">Live evidence could not be refreshed: ${esc(error)}</div>` : ""}${p ? `<details class="technical-details"><summary><span>Technical request details</span><small>Optional</small></summary><pre>${esc(JSON.stringify(p.params, null, 2))}</pre></details>` : ""}${a.status === "expired" ? `<div class="notice warn"><strong>This decision is no longer live.</strong><br>It cannot be answered safely. ${esc(expiredRecoveryNote)}</div>` : ""}${a.status === "responding" ? '<div class="notice">Decision submitted. Waiting for Codex to confirm resolution.</div>' : ""}<form id="decision-form">${form}</form><div class="actions-row">${canReissue ? `<button class="primary" data-reissue-approval="${esc(a.id)}">Request a fresh decision</button>` : ""}${t ? `<button class="secondary" data-task="${esc(t.key)}">Open full work</button>${sourceLink}` : ""}${(a.kind !== "approval" && a.status === "open") || a.status === "expired" ? `<button class="secondary" data-resolve="${esc(a.id)}">Dismiss expired request</button>` : ""}</div><p class="quiet">Created ${new Date(a.created_at).toLocaleString()}</p>`;
   const decision = $("#decision-form");
   if (decision)
     decision.onsubmit = async (e) => {
@@ -1365,6 +1378,17 @@ document.addEventListener("click", async (e) => {
       selectedActions.delete(b.dataset.resolve);
       $("#panel").hidden = true;
       panel = null;
+    });
+  if (b.dataset.reissueApproval)
+    await perform(b, async () => {
+      await api("/api/approval/reissue", {
+        id: b.dataset.reissueApproval,
+        requestId: crypto.randomUUID(),
+      });
+      selectedActions.delete(b.dataset.reissueApproval);
+      $("#panel").hidden = true;
+      panel = null;
+      toast("Asked the agent to issue a fresh decision.");
     });
   if (b.dataset.pause)
     await perform(b, async () => {

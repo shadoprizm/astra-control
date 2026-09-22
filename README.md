@@ -115,7 +115,7 @@ ThreadHelm is not a replacement for each source’s native client.
 - Claude Code, Hermes, OpenClaw, and Open WebUI are observation-only in this release.
 - The standalone panel does not capture ChatGPT conversations or Codex Cloud tasks. Codex discovery is limited to the configured local or SSH runtime projections.
 - Existing desktop-owned Codex tasks cannot be steered or interrupted until their owning client releases them. Start a Codex task from ThreadHelm for its full supported control surface.
-- Managed Codex runtimes currently belong to hub subprocesses. Restarting the hub interrupts that ownership and invalidates pending approvals; those approval IDs are never replayed, so the agent must issue a new request after the task resumes.
+- Managed Codex runtimes currently belong to hub subprocesses. Restarting the hub interrupts that ownership and invalidates pending approvals; those approval IDs are never replayed. For dashboard-managed work, the decision panel can ask the agent to issue a new request without granting the expired one.
 - Worktrees isolate directories; they do not prove that two task scopes are compatible or that their branches will merge cleanly.
 - A completed agent turn is a review checkpoint, not evidence that code was pushed, merged, deployed, or production-ready.
 - Runtime status reports observation freshness. An offline source does not prove that its remote agent stopped.

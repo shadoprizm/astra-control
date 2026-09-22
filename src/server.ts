@@ -281,6 +281,15 @@ const server = createServer(
         }
         if (path === "/api/shadow-analysis/run")
           return json(res, 202, engine.triggerShadowAnalysis());
+        if (path === "/api/approval/reissue")
+          return json(
+            res,
+            200,
+            await engine.reissueApproval(
+              requestId(b.requestId),
+              text(b.id, "action", 100),
+            ),
+          );
         if (path === "/api/approval")
           return json(res, 200, engine.approval(text(b.id, "action"), b));
         if (path === "/api/send")
