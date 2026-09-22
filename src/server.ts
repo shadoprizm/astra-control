@@ -307,6 +307,15 @@ const server = createServer(
               text(b.prompt, "message"),
             ),
           );
+        if (path === "/api/continue")
+          return json(
+            res,
+            200,
+            await engine.continueTask(
+              requestId(b.requestId),
+              text(b.key, "task"),
+            ),
+          );
         if (path === "/api/pause")
           return json(
             res,

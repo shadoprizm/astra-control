@@ -937,6 +937,13 @@ export class Engine extends EventEmitter {
       });
     });
   }
+  async continueTask(id: string, key: string) {
+    return this.send(
+      id,
+      key,
+      "Continue the task from its last safe checkpoint. Do not repeat a previously pending operation or treat an expired approval as permission. Request a new approval before any action that needs one.",
+    );
+  }
   async create(
     id: string,
     hostId: string,

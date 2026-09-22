@@ -347,6 +347,37 @@ test("declining an expired approval records the owner's decision", async () => {
     close();
   }
 });
+test("continuing a task tells the agent to revalidate old approval state", async () => {
+  const { s, close } = setup();
+  const e = new Engine(
+    { port: 0, hosts: [{ id: "local", name: "Local", codex: "unused" }] },
+    s,
+    ".",
+  );
+  const h = e.host("local"), calls: any[] = [];
+  s.upsert({ ...fixture, status: "paused", turnStatus: "interrupted" });
+  s.manage(fixture.key);
+  (h as any).snapshot = async () => [fixture];
+  (h.rpc as any).call = async (method: string, params: any) => {
+    calls.push({ method, params });
+    if (method === "thread/read") return { thread: { turns: [] } };
+    if (method === "turn/start") return { turn: { id: "continued-turn" } };
+    return {};
+  };
+  try {
+    await e.continueTask("continue-request-1", fixture.key);
+    assert.deepEqual(calls.map((call) => call.method), [
+      "thread/resume",
+      "thread/read",
+      "turn/start",
+    ]);
+    assert.match(calls[2].params.input[0].text, /expired approval/i);
+    assert.match(calls[2].params.input[0].text, /new approval/i);
+  } finally {
+    e.close();
+    close();
+  }
+});
 test("reissued approval records remain in history without returning to the action inbox", () => {
   const { s, close } = setup();
   try {
