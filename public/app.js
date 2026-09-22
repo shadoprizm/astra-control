@@ -235,7 +235,7 @@ function renderIfChanged() {
   return true;
 }
 function briefingFeedbackHtml(entry) {
-  if (entry.kind !== "recommendation") return "";
+  if (entry.kind !== "recommendation" || entry.source !== "model") return "";
   return `<div class="briefing-feedback" aria-label="Rate this recommendation"><span>Was this useful?</span>${[
     ["useful", "Useful"],
     ["wrong", "Wrong"],
@@ -253,7 +253,7 @@ function briefingEntryHtml(entry) {
         ? "AI shadow"
         : entry.source === "model"
           ? "AI proposal"
-          : "Evidence brief",
+          : "System guidance",
     subject = entry.workTitle || "Workspace",
     primary = entry.actionId
       ? `<button class="briefing-open" data-action="${esc(entry.actionId)}">${entry.kind === "decision" ? "Review decision" : "Review item"} →</button>`
@@ -294,11 +294,12 @@ function renderBriefing() {
 function taskBriefCardHtml(task) {
   const briefing = task.briefing;
   if (!briefing) return "";
-  const supervisor = state.supervisorName || "Astra",
+  const recommendationLabel =
+      briefing.recommendation?.source === "model" ? "AI" : "Guidance",
     rows = [
       ["Now", briefing.current?.title],
       ["You", briefing.decision?.title || "No decision pending"],
-      [supervisor, briefing.recommendation?.title],
+      [recommendationLabel, briefing.recommendation?.title],
       ["Next", briefing.next?.title],
     ];
   return `<button class="task-brief" data-task="${esc(task.key)}" aria-label="Open evidence briefing for ${esc(shortTitle(task))}">${rows.map(([label, value]) => `<span><b>${label}</b><em>${esc(value || "Not available")}</em></span>`).join("")}</button>`;
@@ -309,10 +310,15 @@ function taskBriefDetailHtml(task) {
   const entries = [
     ["Now", briefing.current],
     ["Your decision", briefing.decision],
-    ["Recommendation", briefing.recommendation],
+    [
+      briefing.recommendation?.source === "model"
+        ? "AI recommendation"
+        : "System next step",
+      briefing.recommendation,
+    ],
     ["Next", briefing.next],
   ];
-  return `<section class="task-brief-detail"><div class="task-brief-detail-heading"><div><div class="eyebrow">EVIDENCE BRIEF</div><h3>What is happening and what follows</h3></div><small>${esc(briefing.evidenceRevision.slice(0, 10))}</small></div><div class="task-brief-detail-grid">${entries.map(([label, entry]) => `<article class="${entry ? "" : "empty-entry"}"><span>${esc(label)}</span><strong>${esc(entry?.title || "Nothing pending")}</strong><p>${esc(entry?.body || "No owner decision is required by the current evidence.")}</p>${entry?.kind === "recommendation" ? briefingFeedbackHtml(entry) : ""}</article>`).join("")}</div></section>`;
+  return `<section class="task-brief-detail"><div class="task-brief-detail-heading"><div><div class="eyebrow">EVIDENCE BRIEF</div><h3>What is happening and what follows</h3></div><small>${esc(briefing.evidenceRevision.slice(0, 10))}</small></div><div class="task-brief-detail-grid">${entries.map(([label, entry]) => `<article class="${entry ? "" : "empty-entry"}"><span>${esc(label)}</span><strong>${esc(entry?.title || "Nothing pending")}</strong><p>${esc(entry?.body || "No owner decision is required by the current evidence.")}</p>${label === "System next step" ? '<small class="briefing-origin">Status guidance, not an AI-proposed solution.</small>' : ""}${entry?.kind === "recommendation" ? briefingFeedbackHtml(entry) : ""}</article>`).join("")}</div></section>`;
 }
 async function refresh() {
   try {
@@ -748,6 +754,22 @@ function signalHtml(signal, t) {
       : "";
   return `<section class="task-signal ${esc(signal.kind)}" role="status" aria-label="${esc(signal.label)}"><span class="signal-icon" aria-hidden="true">${esc(signal.icon)}</span><div class="signal-copy"><div class="signal-label">${esc(signal.label)}</div><strong>${esc(signal.title)}</strong><p>${esc(signal.body)}</p></div>${action}</section>`;
 }
+function continuationChoiceHtml(t, status, controls) {
+  const liveApproval = state.actions.some(
+    (action) =>
+      action.kind === "approval" &&
+      action.status === "open" &&
+      (action.taskKey || action.task_key) === t.key,
+  );
+  if (
+    !controls ||
+    !t.managed ||
+    !["paused", "waiting"].includes(status) ||
+    liveApproval
+  )
+    return "";
+  return `<section class="task-signal next" aria-label="Choose what happens next"><span class="signal-icon" aria-hidden="true">?</span><div class="signal-copy"><div class="signal-label">YOUR CHOICE</div><strong>No AI recommendation is ready to approve yet</strong><p>This task was interrupted before its recommendation checkpoint. Continue resumes from the last safe checkpoint; it does not approve an old request. You can also stop this direction or tell the agent what to do instead.</p></div><div class="actions-row"><button class="primary" data-continue="${esc(t.key)}">Continue task</button><button class="secondary" data-stop="${esc(t.key)}">Don’t continue</button><button class="secondary" data-focus-compose>Give a different direction</button></div></section>`;
+}
 function repositoryHtml(g) {
   if (!g.available)
     return `<details class="technical-details"><summary><span>Repository state</span><small>Unavailable</small></summary><p>${esc(g.error || "No Git repository found.")}</p></details>`;
@@ -815,7 +837,7 @@ function renderDetail(d, scroll) {
       : !t.managed && t.owned
         ? "Continue in Codex — this task is desktop-owned"
         : "Send to agent →";
-  content.innerHTML = `<div class="task-context"><div><span class="badge ${status}">${esc(status === "idle" ? "Turn complete" : status === "offline" ? "Stale / offline" : status)}</span><span>${esc(hostName(t.hostId))} · ${esc(repo(t))}</span></div><div class="actions-row"><a href="codex://threads/${encodeURIComponent(t.id)}">Open in Codex ↗</a>${controls && t.managed && ["paused", "waiting"].includes(status) ? `<button class="primary" data-continue="${esc(t.key)}">Continue task</button>` : ""}${controls && t.managed && status === "active" ? `<button class="secondary" data-pause="${esc(t.key)}">Pause turn</button>` : ""}${controls && inactive ? `<button class="secondary" data-archive="${esc(t.key)}">Archive task</button>` : ""}<button class="secondary" data-task="${esc(t.key)}">Refresh</button></div></div>${signalHtml(signal, t)}${!controls ? `<div class="ownership-note warn">${esc(t.controlReason || "Controls are disabled because this Codex protocol has not passed the compatibility probe.")}</div>` : !t.managed ? `<div class="ownership-note ${t.owned ? "warn" : ""}">${t.owned ? "This task is controlled by Codex desktop. Reply there to continue it." : "Sending a reply will bring this available task under dashboard control."}</div>` : ""}${taskBriefDetailHtml(t)}${reviewHtml(messages, g)}<section class="conversation-section"><div class="conversation-heading"><h3>Earlier conversation and activity</h3><span>Technical activity is collapsed</span></div><div class="messages">${conversationHtml(earlier.slice(-30)) || '<div class="empty compact">No earlier conversation items are available.</div>'}</div></section><form class="compose" id="send-form"><label for="send-input">Reply or give the agent its next instruction</label><textarea id="send-input" rows="4" placeholder="Write a clear answer or describe what should happen next…" ${controls ? "" : "disabled"}>${esc(drafts.get(t.key) || "")}</textarea><button class="primary full" type="submit" ${sendDisabled ? "disabled" : ""}>${sendLabel}</button></form>${repositoryHtml(g)}`;
+  content.innerHTML = `<div class="task-context"><div><span class="badge ${status}">${esc(status === "idle" ? "Turn complete" : status === "offline" ? "Stale / offline" : status)}</span><span>${esc(hostName(t.hostId))} · ${esc(repo(t))}</span></div><div class="actions-row"><a href="codex://threads/${encodeURIComponent(t.id)}">Open in Codex ↗</a>${controls && t.managed && status === "active" ? `<button class="secondary" data-pause="${esc(t.key)}">Pause turn</button>` : ""}${controls && inactive ? `<button class="secondary" data-archive="${esc(t.key)}">Archive task</button>` : ""}<button class="secondary" data-task="${esc(t.key)}">Refresh</button></div></div>${signalHtml(signal, t)}${continuationChoiceHtml(t, status, controls)}${!controls ? `<div class="ownership-note warn">${esc(t.controlReason || "Controls are disabled because this Codex protocol has not passed the compatibility probe.")}</div>` : !t.managed ? `<div class="ownership-note ${t.owned ? "warn" : ""}">${t.owned ? "This task is controlled by Codex desktop. Reply there to continue it." : "Sending a reply will bring this available task under dashboard control."}</div>` : ""}${taskBriefDetailHtml(t)}${reviewHtml(messages, g)}<section class="conversation-section"><div class="conversation-heading"><h3>Earlier conversation and activity</h3><span>Technical activity is collapsed</span></div><div class="messages">${conversationHtml(earlier.slice(-30)) || '<div class="empty compact">No earlier conversation items are available.</div>'}</div></section><form class="compose" id="send-form"><label for="send-input">Reply or give the agent its next instruction</label><textarea id="send-input" rows="4" placeholder="Write a clear answer or describe what should happen next…" ${controls ? "" : "disabled"}>${esc(drafts.get(t.key) || "")}</textarea><button class="primary full" type="submit" ${sendDisabled ? "disabled" : ""}>${sendLabel}</button></form>${repositoryHtml(g)}`;
   restorePanelScroll(scroll);
   $("#send-input").addEventListener("input", (e) =>
     drafts.set(t.key, e.target.value),
@@ -1411,6 +1433,16 @@ document.addEventListener("click", async (e) => {
         requestId: crypto.randomUUID(),
       });
       toast("Task continued. Any new decision will appear here.");
+    });
+  if (b.dataset.stop)
+    await perform(b, async () => {
+      await api("/api/send", {
+        key: b.dataset.stop,
+        prompt:
+          "Do not continue the current approach or make any changes. The owner disagrees with this direction. Stop at this safe checkpoint and wait for a new owner instruction.",
+        requestId: crypto.randomUUID(),
+      });
+      toast("The agent was told not to continue and to wait for your direction.");
     });
   if (
     b.dataset.archive &&
