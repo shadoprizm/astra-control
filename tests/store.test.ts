@@ -318,7 +318,7 @@ test("an expired managed approval accepts an explicit owner decision", async () 
     close();
   }
 });
-test("declining an expired approval keeps the task paused", async () => {
+test("declining an expired approval records the owner's decision", async () => {
   const { s, close } = setup();
   const e = new Engine(
     { port: 0, hosts: [{ id: "local", name: "Local", codex: "unused" }] },

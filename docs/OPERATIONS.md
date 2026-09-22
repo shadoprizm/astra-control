@@ -14,7 +14,7 @@ See docs/HOSTING.md. Install a user service with `python3 scripts/install-linux.
 
 ## Updates and migration
 
-Finish or pause dashboard-managed work before restarting or moving the hub: the current version owns App Server subprocesses, so stopping it closes its runtime connections. Pending permission IDs become invalid after restart and must never be replayed. For a dashboard-managed task, the owner can use the expired decision panel to explicitly allow the exact request to continue or leave the task paused. Never retry an uncertain action automatically.
+Finish or pause dashboard-managed work before restarting or moving the hub: the current version owns App Server subprocesses, so stopping it closes its runtime connections. Pending permission IDs become invalid after restart and must never be replayed. For a dashboard-managed task, the owner can use the expired decision panel to explicitly allow the exact request to continue or decline it. Never retry an uncertain action automatically.
 
 Back up SQLite with its backup API or after stopping the hub; copying only a live `.sqlite` file can omit WAL data. Back up private configuration and connector credential/device files separately, preserving `0600` permissions. Preserve host and source IDs when moving the hub so task/source keys remain stable. Mark transferred managed sessions as unowned until their state is reconciled. Do not run two hubs against the same database.
 
