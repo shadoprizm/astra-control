@@ -279,6 +279,17 @@ const server = createServer(
             ),
           );
         }
+        if (path === "/api/briefing/apply")
+          return json(
+            res,
+            200,
+            await engine.applyRecommendation(
+              requestId(b.requestId),
+              text(b.recommendationId, "recommendation", 200),
+              text(b.evidenceRevision, "evidence revision", 200),
+              optionalText(b.taskKey, "task", 300),
+            ),
+          );
         if (path === "/api/shadow-analysis/run")
           return json(res, 202, engine.triggerShadowAnalysis());
         if (path === "/api/approval/expired-decision") {
