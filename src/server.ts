@@ -281,15 +281,20 @@ const server = createServer(
         }
         if (path === "/api/shadow-analysis/run")
           return json(res, 202, engine.triggerShadowAnalysis());
-        if (path === "/api/approval/reissue")
+        if (path === "/api/approval/expired-decision") {
+          const decision = text(b.action, "decision", 20);
+          if (decision !== "accept" && decision !== "decline")
+            throw new Error("Choose whether to approve or decline this request");
           return json(
             res,
             200,
-            await engine.reissueApproval(
+            await engine.decideExpiredApproval(
               requestId(b.requestId),
               text(b.id, "action", 100),
+              decision,
             ),
           );
+        }
         if (path === "/api/approval")
           return json(res, 200, engine.approval(text(b.id, "action"), b));
         if (path === "/api/send")

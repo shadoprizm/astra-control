@@ -1310,14 +1310,25 @@ export class Engine extends EventEmitter {
     this.emit("change");
     return { status: "responding" };
   }
-  async reissueApproval(id: string, approvalId: string) {
+  async decideExpiredApproval(
+    id: string,
+    approvalId: string,
+    decision: "accept" | "decline",
+  ) {
     const approval = this.store.actionById(approvalId);
     if (
       !approval ||
       approval.kind !== "approval" ||
       approval.status !== "expired"
     )
-      throw new Error("Only an expired approval can be reissued");
+      throw new Error("Only an expired approval can be decided here");
+    if (!["accept", "decline"].includes(decision))
+      throw new Error("Choose whether to approve or decline this request");
+    if (decision === "decline") {
+      this.store.resolve(approval.id, "declined");
+      this.emit("change");
+      return { status: "declined" };
+    }
     if (!approval.task_key)
       throw new Error("The original task is no longer available");
     const task = this.task(approval.task_key);
@@ -1328,9 +1339,9 @@ export class Engine extends EventEmitter {
     const sent = await this.send(
       id,
       approval.task_key,
-      "A previous approval request expired when the control connection restarted. Do not perform the underlying operation or assume permission. Reissue the same request through the standard approval mechanism, preserving its scope and options, so the owner can decide here.",
+      "The owner has explicitly approved the previous request. Continue only with the exact scope you asked the owner to approve. Do not broaden it or infer permission for any other operation. If anything beyond that scope is needed, request a new approval.",
     );
-    this.store.resolve(approval.id, "reissued");
+    this.store.resolve(approval.id, "approved");
     this.emit("change");
     return sent;
   }

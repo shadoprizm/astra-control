@@ -558,7 +558,7 @@ export class Store {
   openActions(limit = 1000) {
     return this.db
       .prepare(
-        "SELECT * FROM actions WHERE status<>'resolved' ORDER BY created_at DESC LIMIT ?",
+        "SELECT * FROM actions WHERE status NOT IN ('resolved','reissued','approved','declined') ORDER BY created_at DESC LIMIT ?",
       )
       .all(Math.max(1, Math.min(5000, limit)))
       .map(storedAction);
