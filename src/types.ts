@@ -136,6 +136,7 @@ export interface BriefingEntry {
   evidence: string[];
   source: "deterministic" | "model";
   analysisMode?: "coordinator" | "shadow";
+  isAdvice?: boolean;
   confidence: StatusConfidence;
   updatedAt: number;
   priority: number;
